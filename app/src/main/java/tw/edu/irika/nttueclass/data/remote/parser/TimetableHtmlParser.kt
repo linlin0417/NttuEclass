@@ -56,8 +56,8 @@ object TimetableHtmlParser {
                                     periodNumber = periodNumber,
                                     courseId = "c_${courseName.hashCode()}",
                                     courseName = courseName,
-                                    classroom = classroom.ifBlank { "校本部" },
-                                    instructor = instructor.ifBlank { "授課教師" }
+                                    classroom = classroom.trim(),
+                                    instructor = instructor.trim()
                                 )
                             )
                         }

@@ -91,7 +91,7 @@ class BillingManager(
                     onConnected?.invoke()
                 } else {
                     _isConnected.value = false
-                    _statusMessage.value = "Google Play 連線未就緒 (代碼: ${billingResult.responseCode})，已啟用安全離線/模擬模式"
+                    _statusMessage.value = "Google Play 服務未就緒 (代碼: ${billingResult.responseCode})，請檢查網路連線或 Play 商店設定"
                 }
             }
 
@@ -163,8 +163,7 @@ class BillingManager(
     fun launchPurchase(activity: Activity, productId: String, isSubscription: Boolean = false) {
         val details = productDetailsMap[productId]
         if (details == null) {
-            // 在無 Google Play 服務或商品尚未於後台生效時，提供安全模擬機制
-            simulatePurchaseSuccess(productId)
+            _statusMessage.value = "Google Play 商品資訊載入中，請確認網路連線或稍候再試"
             return
         }
 
@@ -363,26 +362,6 @@ class BillingManager(
             _statusMessage.value = message
             onResult?.invoke(true, message)
         }
-    }
-
-    /**
-     * 離線/無 Google Play 環境安全模擬 (支援單元測試與開發展示)
-     */
-    fun simulatePurchaseSuccess(productId: String) {
-        applyProductBenefit(productId)
-    }
-
-    /**
-     * 模擬退款撤回 (用於單元測試與防退款驗證)
-     */
-    fun simulateRefundRevocation() {
-        val current = DonationIntegerHelper.decode(storage.getDonationInteger())
-        val revoked = current.copy(
-            tier = 0,
-            isFounder = false
-        )
-        saveDonationData(revoked)
-        _statusMessage.value = "已模擬撤銷退款之特權與徽章"
     }
 
     private fun saveDonationData(data: DonationData) {

@@ -24,6 +24,8 @@ sealed class Screen(
     data object Verifier : Screen("verifier", "核銷台", Icons.Default.Security)
 
     companion object {
-        val bottomNavScreens = listOf(Dashboard, Timetable, Courses, Tasks)
+        val bottomNavScreens: List<Screen> by lazy {
+            listOf(Dashboard, Timetable, Courses, Tasks)
+        }
     }
 }

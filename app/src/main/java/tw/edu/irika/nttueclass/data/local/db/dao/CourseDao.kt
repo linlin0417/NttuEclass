@@ -12,6 +12,12 @@ interface CourseDao {
     @Query("SELECT * FROM courses ORDER BY name ASC")
     fun getAllCourses(): Flow<List<CourseEntity>>
 
+    @Query("SELECT * FROM courses ORDER BY name ASC")
+    suspend fun getAllCoursesList(): List<CourseEntity>
+
+    @Query("SELECT * FROM courses WHERE id = :id LIMIT 1")
+    suspend fun getCourseById(id: String): CourseEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(courses: List<CourseEntity>)
 

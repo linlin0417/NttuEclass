@@ -211,10 +211,6 @@ fun DonationScreen(
                     billingManager.revalidatePurchases { success, msg ->
                         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     }
-                },
-                onSimulateRefund = {
-                    billingManager.simulateRefundRevocation()
-                    Toast.makeText(context, "已模擬退款撤回", Toast.LENGTH_SHORT).show()
                 }
             )
         }
@@ -241,7 +237,7 @@ private fun DonationHeader(isConnected: Boolean, integrityMessage: String) {
                 onClick = {},
                 label = {
                     Text(
-                        if (isConnected) "Google Play 已連線" else "安全離線/模擬模式",
+                        if (isConnected) "Google Play 已連線" else "安全離線保護模式",
                         fontSize = 10.sp
                     )
                 }
@@ -531,8 +527,7 @@ private fun PermanentBadgeCard(
 
 @Composable
 private fun DonationSecurityCard(
-    onRevalidate: () -> Unit,
-    onSimulateRefund: () -> Unit
+    onRevalidate: () -> Unit
 ) {
     OutlinedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -562,24 +557,13 @@ private fun DonationSecurityCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            OutlinedButton(
+                onClick = onRevalidate,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                OutlinedButton(
-                    onClick = onRevalidate,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("重新檢查訂單", fontSize = 12.sp)
-                }
-                OutlinedButton(
-                    onClick = onSimulateRefund,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("模擬退款撤銷", fontSize = 12.sp)
-                }
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("重新檢查訂單有效性", fontSize = 13.sp)
             }
         }
     }

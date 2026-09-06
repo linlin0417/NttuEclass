@@ -85,7 +85,7 @@ fun NttuEPassScreen(
     val storage = remember { SecureCredentialStorage(context) }
 
     // 學號與憑證資訊
-    val studentId = remember { storage.getStudentId() ?: "11411188" }
+    val studentId = remember { storage.getStudentId() }
     var specialToken by remember { mutableStateOf(storage.getSpecialToken() ?: "") }
     var tokenInput by remember { mutableStateOf(specialToken) }
     var isTokenEditorOpen by remember { mutableStateOf(false) }
@@ -100,6 +100,82 @@ fun NttuEPassScreen(
     var barcode1DBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var qrCodeBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var qrPayloadPreview by remember { mutableStateOf("") }
+
+    // 若未登入，顯示安全提示畫面
+    if (studentId.isNullOrBlank()) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("NttuEPass 校園數位通行證") },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "返回"
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                )
+            },
+            modifier = modifier
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Security,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(56.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "尚未登入學生帳號",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "NttuEPass 須與您的臺東大學學籍身分綁定。請先返回主畫面點擊登入學號，系統將自動生成專屬借書條碼與加密憑證。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = onNavigateBack,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("返回主頁進行登入", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
 
     // 進入時提高亮度，離開時恢復
     DisposableEffect(Unit) {

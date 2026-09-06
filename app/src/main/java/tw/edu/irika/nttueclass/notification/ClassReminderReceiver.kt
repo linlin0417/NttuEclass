@@ -8,9 +8,9 @@ class ClassReminderReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val courseName = intent.getStringExtra(EXTRA_COURSE_NAME) ?: return
-        val classroom = intent.getStringExtra(EXTRA_CLASSROOM) ?: "校本部"
-        val startTime = intent.getStringExtra(EXTRA_START_TIME) ?: ""
-        val instructor = intent.getStringExtra(EXTRA_INSTRUCTOR) ?: "授課教師"
+        val classroom = intent.getStringExtra(EXTRA_CLASSROOM).orEmpty()
+        val startTime = intent.getStringExtra(EXTRA_START_TIME).orEmpty()
+        val instructor = intent.getStringExtra(EXTRA_INSTRUCTOR).orEmpty()
 
         NotificationHelper.showClassReminderNotification(
             context = context,

@@ -12,6 +12,9 @@ interface AnnouncementDao {
     @Query("SELECT * FROM announcements ORDER BY date DESC")
     fun getAllAnnouncements(): Flow<List<AnnouncementEntity>>
 
+    @Query("SELECT * FROM announcements ORDER BY date DESC")
+    suspend fun getAllAnnouncementsList(): List<AnnouncementEntity>
+
     @Query("SELECT * FROM announcements WHERE courseId = :courseId ORDER BY date DESC")
     fun getAnnouncementsByCourse(courseId: String): Flow<List<AnnouncementEntity>>
 

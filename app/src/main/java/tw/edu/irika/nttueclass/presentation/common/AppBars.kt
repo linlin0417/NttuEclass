@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +35,7 @@ fun AppTopBar(
     onOpenDonation: () -> Unit,
     onOpenPass: () -> Unit,
     onOpenAbout: () -> Unit,
+    onSync: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     TopAppBar(
@@ -52,6 +54,15 @@ fun AppTopBar(
                     contentDescription = if (isLoggedIn) "已登入" else "登入帳號",
                     tint = if (isLoggedIn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+            // 登入狀態下提供手動重新同步按鈕
+            if (isLoggedIn) {
+                IconButton(onClick = onSync) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "同步學校學園資料"
+                    )
+                }
             }
             // NttuPass 快速出示
             IconButton(onClick = onOpenPass) {
@@ -102,7 +113,7 @@ fun AppBottomBar(
         containerColor = MaterialTheme.colorScheme.surface,
         modifier = modifier
     ) {
-        Screen.bottomNavScreens.forEach { screen ->
+        Screen.bottomNavScreens.filterNotNull().forEach { screen ->
             val selected = currentRoute == screen.route
             NavigationBarItem(
                 selected = selected,

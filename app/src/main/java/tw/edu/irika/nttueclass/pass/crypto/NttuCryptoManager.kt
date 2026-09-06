@@ -278,22 +278,6 @@ object NttuCryptoManager {
             return decryptResult
         }
 
-        // 容錯：如果包含冒號分隔的明文 (測試模式)
-        if (trimmed.contains(":")) {
-            val parts = trimmed.split(":")
-            if (parts.size >= 2) {
-                return Result.success(
-                    NttuPassPayload(
-                        studentId = parts[0],
-                        token = normalizeToken(parts.getOrNull(1)),
-                        donationInteger = parts.getOrNull(2)?.toLongOrNull() ?: 0L,
-                        timestamp = System.currentTimeMillis(),
-                        is1D = false
-                    )
-                )
-            }
-        }
-
         return Result.failure(IllegalArgumentException("無法識別的條碼格式或解密驗證失敗"))
     }
 }

@@ -12,6 +12,9 @@ interface TimetableDao {
     @Query("SELECT * FROM timetable_slots ORDER BY dayOfWeek ASC, periodNumber ASC")
     fun getAllSlots(): Flow<List<TimetableSlotEntity>>
 
+    @Query("SELECT * FROM timetable_slots ORDER BY dayOfWeek ASC, periodNumber ASC")
+    suspend fun getAllSlotsList(): List<TimetableSlotEntity>
+
     @Query("SELECT * FROM timetable_slots WHERE dayOfWeek = :dayOfWeek ORDER BY periodNumber ASC")
     fun getSlotsByDay(dayOfWeek: Int): Flow<List<TimetableSlotEntity>>
 

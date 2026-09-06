@@ -28,21 +28,22 @@ object AnnouncementHtmlParser {
                 val href = titleEl.attr("href")
                 val id = href.substringAfterLast("=", "ann_${title.hashCode()}")
 
-                val courseName = row.selectFirst(".course, .course-name, td:nth-child(2)")?.text()?.trim() ?: "校園公告"
-                val date = row.selectFirst(".date, td.date, td:nth-child(4)")?.text()?.trim() ?: ""
-                val author = row.selectFirst(".author, td:nth-child(3)")?.text()?.trim() ?: "授課教師"
+                val courseName = row.selectFirst(".course, .course-name, td:nth-child(2)")?.text()?.trim().orEmpty()
+                val date = row.selectFirst(".date, td.date, td:nth-child(4)")?.text()?.trim().orEmpty()
+                val author = row.selectFirst(".author, td:nth-child(3)")?.text()?.trim().orEmpty()
                 val hasAttachment = row.selectFirst(".attachment, i.fa-paperclip, img[src*=attach]") != null
                 val isUnread = row.hasClass("unread") || row.selectFirst(".new, .badge-danger") != null
+                val summary = row.selectFirst(".summary, .content, td:nth-child(5)")?.text()?.trim().orEmpty()
 
                 list.add(
                     Announcement(
                         id = id,
-                        courseId = "c_${courseName.hashCode()}",
+                        courseId = if (courseName.isNotBlank()) "c_${courseName.hashCode()}" else "c_general",
                         courseName = courseName,
                         title = title,
                         date = date,
                         author = author,
-                        contentSummary = "點擊以查閱本則公告完整詳情與附件...",
+                        contentSummary = summary.ifBlank { "點擊以查閱本則公告完整詳情與附件內容。" },
                         isUnread = isUnread,
                         hasAttachment = hasAttachment
                     )

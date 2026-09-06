@@ -21,13 +21,17 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.CalendarViewMonth
 import androidx.compose.material.icons.filled.CalendarViewWeek
+import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -39,6 +43,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -52,40 +57,30 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import tw.edu.irika.nttueclass.data.repository.EclassRepository
 import tw.edu.irika.nttueclass.domain.model.Period
 import tw.edu.irika.nttueclass.domain.model.StandardPeriods
 import tw.edu.irika.nttueclass.domain.model.TimetableSlot
 
 @Composable
 fun TimetableScreen(
+    repository: EclassRepository,
+    isLoggedIn: Boolean,
+    onOpenLogin: () -> Unit,
+    onSync: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isDark = isSystemInDarkTheme()
-    var selectedDay by remember { mutableIntStateOf(1) } // 1=Mon .. 5=Fri
+    val currentDayOfWeek = remember {
+        val day = java.time.LocalDate.now().dayOfWeek.value // 1=Mon .. 7=Sun
+        day.coerceIn(1, 5)
+    }
+    var selectedDay by remember { mutableIntStateOf(currentDayOfWeek) }
     var isWeekView by remember { mutableStateOf(false) }
     var selectedSlotForDetail by remember { mutableStateOf<TimetableSlot?>(null) }
 
-    // 示範課表資料（涵蓋日間 1~9 節與夜間 A~E 節）
-    val sampleSlots = remember {
-        listOf(
-            TimetableSlot(1, 3, "c1", "演算法", "理工 C303", "張教授"),
-            TimetableSlot(1, 4, "c1", "演算法", "理工 C303", "張教授"),
-            TimetableSlot(1, 7, "c2", "資料庫系統", "知本校區 產學301", "李副教授"),
-            TimetableSlot(1, 8, "c2", "資料庫系統", "知本校區 產學301", "李副教授"),
-            TimetableSlot(2, 2, "c3", "計算機網路", "理工 B204", "王教授"),
-            TimetableSlot(2, 3, "c3", "計算機網路", "理工 B204", "王教授"),
-            TimetableSlot(2, 6, "c4", "高等軟體工程", "理工 C102", "陳助理教授"),
-            TimetableSlot(3, 5, "c5", "專題演講", "圖書資訊館 演講廳", "客座學者"),
-            TimetableSlot(3, 7, "c6", "人工智慧概論", "理工 A201", "林教授"),
-            TimetableSlot(3, 8, "c6", "人工智慧概論", "理工 A201", "林教授"),
-            TimetableSlot(4, 3, "c7", "行動應用開發", "產學 205", "Saya"),
-            TimetableSlot(4, 4, "c7", "行動應用開發", "產學 205", "Saya"),
-            TimetableSlot(4, 10, "c8", "進修夜間專題 (A節)", "人文學院 H101", "黃講師"),
-            TimetableSlot(4, 11, "c8", "進修夜間專題 (B節)", "人文學院 H101", "黃講師"),
-            TimetableSlot(5, 2, "c9", "密碼學與資安", "理工 C302", "趙教授"),
-            TimetableSlot(5, 3, "c9", "密碼學與資安", "理工 C302", "趙教授")
-        )
-    }
+    // 從真實 Room 資料庫訂閱課表資料流 (無任何寫死假資料)
+    val slots by repository.getTimetableStream().collectAsState(initial = emptyList())
 
     Column(
         modifier = modifier
@@ -98,24 +93,79 @@ fun TimetableScreen(
             onSelectDay = { selectedDay = it },
             isWeekView = isWeekView,
             onToggleView = { isWeekView = !isWeekView },
-            onBackToToday = { selectedDay = 1 }
+            onBackToToday = { selectedDay = currentDayOfWeek }
         )
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        if (isWeekView) {
-            WeekTableView(
-                slots = sampleSlots,
-                isDark = isDark,
-                onSlotClick = { selectedSlotForDetail = it }
-            )
+        if (slots.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.EventBusy,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.size(64.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "目前尚無課表資料",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (isLoggedIn) "已驗證學生身分，請點擊下方按鈕以同步臺東大學最新課表。" else "尚未登入學生帳號，請先登入以載入個人專屬課表。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    if (isLoggedIn) {
+                        Button(
+                            onClick = onSync,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("立即同步課表", fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Button(
+                            onClick = onOpenLogin,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("登入帳號載入課表", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
         } else {
-            DayTimelineView(
-                dayOfWeek = selectedDay,
-                slots = sampleSlots.filter { it.dayOfWeek == selectedDay },
-                isDark = isDark,
-                onSlotClick = { selectedSlotForDetail = it }
-            )
+            if (isWeekView) {
+                WeekTableView(
+                    slots = slots,
+                    isDark = isDark,
+                    onSlotClick = { selectedSlotForDetail = it }
+                )
+            } else {
+                DayTimelineView(
+                    dayOfWeek = selectedDay,
+                    slots = slots.filter { it.dayOfWeek == selectedDay },
+                    isDark = isDark,
+                    onSlotClick = { selectedSlotForDetail = it }
+                )
+            }
         }
     }
 

@@ -22,9 +22,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -84,9 +86,26 @@ fun MainScaffold(
         }
     }
 
-    // 初始化離線預載資料
-    LaunchedEffect(Unit) {
-        repository.seedInitialDataIfEmpty()
+    val coroutineScope = rememberCoroutineScope()
+
+    val triggerSync: () -> Unit = {
+        if (!isLoggedIn) {
+            Toast.makeText(context, "請先登入學號以同步學校資料", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "正在同步臺東大學課表、課程與作業...", Toast.LENGTH_SHORT).show()
+            coroutineScope.launch {
+                val result = repository.syncAllData()
+                if (result.isSuccess) {
+                    Toast.makeText(context, "資料同步完成！", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(
+                        context,
+                        "同步失敗：${result.exceptionOrNull()?.localizedMessage ?: "請檢查網路連線"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
     }
 
     val navController = rememberNavController()
@@ -133,7 +152,8 @@ fun MainScaffold(
                         onOpenAbout = {
                             versionTapCount = 0
                             showAboutDialog = true
-                        }
+                        },
+                        onSync = triggerSync
                     )
                 }
             },
@@ -164,20 +184,39 @@ fun MainScaffold(
             ) {
                 composable(Screen.Dashboard.route) {
                     DashboardScreen(
+                        repository = repository,
+                        isLoggedIn = isLoggedIn,
+                        currentStudentId = currentStudentId,
                         onNavigateToTimetable = { navController.navigate(Screen.Timetable.route) },
                         onNavigateToTasks = { navController.navigate(Screen.Tasks.route) },
                         onNavigateToCourses = { navController.navigate(Screen.Courses.route) },
-                        onOpenPass = { navController.navigate(Screen.Pass.route) }
+                        onOpenPass = { navController.navigate(Screen.Pass.route) },
+                        onSync = triggerSync
                     )
                 }
                 composable(Screen.Timetable.route) {
-                    TimetableScreen()
+                    TimetableScreen(
+                        repository = repository,
+                        isLoggedIn = isLoggedIn,
+                        onOpenLogin = { showLoginDialog = true },
+                        onSync = triggerSync
+                    )
                 }
                 composable(Screen.Courses.route) {
-                    CourseScreen()
+                    CourseScreen(
+                        repository = repository,
+                        isLoggedIn = isLoggedIn,
+                        onOpenLogin = { showLoginDialog = true },
+                        onSync = triggerSync
+                    )
                 }
                 composable(Screen.Tasks.route) {
-                    TaskScreen()
+                    TaskScreen(
+                        repository = repository,
+                        isLoggedIn = isLoggedIn,
+                        onOpenLogin = { showLoginDialog = true },
+                        onSync = triggerSync
+                    )
                 }
                 composable(Screen.Donation.route) {
                     DonationScreen()
@@ -205,6 +244,7 @@ fun MainScaffold(
                 currentStudentId = studentId
                 showLoginDialog = false
                 checkAndRequestNotificationPermission()
+                triggerSync()
             },
             onDismiss = { showLoginDialog = false }
         )
@@ -215,7 +255,7 @@ fun MainScaffold(
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
             title = { Text("已登入學號：${currentStudentId ?: "同學"}") },
-            text = { Text("目前處於已驗證狀態。是否要清除本機加密 Session 並登出？") },
+            text = { Text("目前處於已驗證狀態。登出將清除本機加密 Session 並抹除所有課表與課程快取以維護資訊安全，是否確認？") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -223,6 +263,10 @@ fun MainScaffold(
                         isLoggedIn = false
                         currentStudentId = null
                         showLogoutDialog = false
+                        coroutineScope.launch {
+                            repository.clearAllData()
+                        }
+                        Toast.makeText(context, "已安全登出並抹除本機資料快取", Toast.LENGTH_SHORT).show()
                     }
                 ) {
                     Text("確認登出")

@@ -12,6 +12,9 @@ interface TaskDao {
     @Query("SELECT * FROM tasks ORDER BY dueDateTime ASC")
     fun getAllTasks(): Flow<List<TaskEntity>>
 
+    @Query("SELECT * FROM tasks ORDER BY dueDateTime ASC")
+    suspend fun getAllTasksList(): List<TaskEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(tasks: List<TaskEntity>)
 

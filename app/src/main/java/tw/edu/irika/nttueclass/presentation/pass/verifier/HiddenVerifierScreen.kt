@@ -130,21 +130,16 @@ fun HiddenVerifierScreen(
     val dao = remember { db.rollCallRecordDao() }
     val storage = remember { SecureCredentialStorage(context) }
 
-    // 點名場次 ID (例如當前課程或日期)
-    var sessionId by remember { mutableStateOf("演算法分析 09/06") }
+    // 點名場次 ID (動態日期命名)
+    val todayStr = remember {
+        val now = java.time.LocalDate.now()
+        "${now.monthValue}/${now.dayOfMonth}"
+    }
+    var sessionId by remember { mutableStateOf("課堂點名 $todayStr") }
 
-    // 預載名單 (學號 -> RosterItem)
+    // 名單 (學號 -> RosterItem，初次預設為空，由管理員匯入或掃描生成)
     var rosterMap by remember {
-        mutableStateOf(
-            mapOf(
-                "11411188" to RosterItem("11411188", "林同學", "資工三A"),
-                "11411101" to RosterItem("11411101", "張小明", "資工三A"),
-                "11411102" to RosterItem("11411102", "李小華", "資工三A"),
-                "11411103" to RosterItem("11411103", "王大明", "資工三A", "公假"),
-                "11411104" to RosterItem("11411104", "陳小美", "資工三A", "病假"),
-                "11411105" to RosterItem("11411105", "趙大同", "資工三A")
-            )
-        )
+        mutableStateOf(emptyMap<String, RosterItem>())
     }
 
     // 歷史紀錄從 Room 資料庫即時觀察
@@ -156,7 +151,7 @@ fun HiddenVerifierScreen(
     var lastError by remember { mutableStateOf<String?>(null) }
     var lastScanTime by remember { mutableLongStateOf(0L) }
 
-    // 手動輸入 / 模擬掃描輸入框
+    // 手動輸入與相機掃描核銷輸入框
     var manualInput by remember { mutableStateOf("") }
     var showRosterImportDialog by remember { mutableStateOf(false) }
     var rosterImportText by remember { mutableStateOf("") }
@@ -172,7 +167,7 @@ fun HiddenVerifierScreen(
     ) { isGranted ->
         hasCameraPermission = isGranted
         if (!isGranted) {
-            scope.launch { snackbarHostState.showSnackbar("未授予相機權限，可使用下方手動/模擬輸入") }
+            scope.launch { snackbarHostState.showSnackbar("未授予相機權限，可使用下方手動輸入核銷") }
         }
     }
 
@@ -285,7 +280,7 @@ fun HiddenVerifierScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // ==================== 1. 掃描鏡頭 / 模擬輸入卡片 ====================
+            // ==================== 1. 掃描鏡頭 / 手動輸入卡片 ====================
             item {
                 Card(
                     shape = RoundedCornerShape(16.dp),
@@ -387,7 +382,7 @@ fun HiddenVerifierScreen(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // 模擬掃描與快速貼上手動輸入
+                        // 手動輸入與條碼貼上核銷
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
@@ -395,8 +390,8 @@ fun HiddenVerifierScreen(
                             OutlinedTextField(
                                 value = manualInput,
                                 onValueChange = { manualInput = it },
-                                label = { Text("模擬掃描輸入 (1D 條碼或 2D 密文)") },
-                                placeholder = { Text("例如 1141118800 或 ECC 密文") },
+                                label = { Text("手動輸入 (1D 條碼或 2D 密文)") },
+                                placeholder = { Text("輸入 1D 條碼或 ECC 密文") },
                                 singleLine = true,
                                 modifier = Modifier.weight(1f)
                             )
@@ -413,30 +408,38 @@ fun HiddenVerifierScreen(
                             }
                         }
 
-                        // 快速測試按鈕
+                        // 快速填入本機身分按鈕
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             OutlinedButton(
                                 onClick = {
-                                    val studentId = storage.getStudentId() ?: "11411188"
-                                    manualInput = NttuCryptoManager.generate1DBarcodeContent(studentId)
+                                    val studentId = storage.getStudentId()
+                                    if (studentId.isNullOrBlank()) {
+                                        Toast.makeText(context, "尚未登入學號，無本機 1D 條碼", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        manualInput = NttuCryptoManager.generate1DBarcodeContent(studentId)
+                                    }
                                 },
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("填入 1D 碼", fontSize = 12.sp)
+                                Text("填入本機 1D 碼", fontSize = 12.sp)
                             }
                             OutlinedButton(
                                 onClick = {
-                                    val studentId = storage.getStudentId() ?: "11411188"
-                                    val token = storage.getSpecialToken()
-                                    val donation = storage.getDonationInteger()
-                                    manualInput = NttuCryptoManager.encryptPayload(studentId, token, donation)
+                                    val studentId = storage.getStudentId()
+                                    if (studentId.isNullOrBlank()) {
+                                        Toast.makeText(context, "尚未登入學號，無本機 2D 密文", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        val token = storage.getSpecialToken()
+                                        val donation = storage.getDonationInteger()
+                                        manualInput = NttuCryptoManager.encryptPayload(studentId, token, donation)
+                                    }
                                 },
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("填入 2D 密文", fontSize = 12.sp)
+                                Text("填入本機 2D 密文", fontSize = 12.sp)
                             }
                         }
                     }
@@ -741,7 +744,7 @@ fun HiddenVerifierScreen(
                             .fillMaxWidth()
                             .height(180.dp),
                         placeholder = {
-                            Text("11411188,林同學,資工三A,\n11411101,張小明,資工三A,\n11411102,李小華,資工三A,公假")
+                            Text("學號,姓名,系級,假別\n例如:\n11001001,王小明,資工系,\n11001002,陳小華,資工系,公假")
                         }
                     )
                 }

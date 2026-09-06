@@ -43,7 +43,7 @@ object BillingProducts {
 }
 
 /**
- * Google Play Billing 7.x 內購與防退款核心管理器
+ * Google Play Billing 8.x 內購與防退款核心管理器
  */
 class BillingManager(
     private val context: Context,
@@ -129,9 +129,9 @@ class BillingManager(
             .setProductList(inAppProducts)
             .build()
 
-        billingClient.queryProductDetailsAsync(inAppParams) { result, detailsList ->
+        billingClient.queryProductDetailsAsync(inAppParams) { result, queryProductDetailsResult ->
             if (result.responseCode == BillingClient.BillingResponseCode.OK) {
-                detailsList.forEach { productDetailsMap[it.productId] = it }
+                queryProductDetailsResult.productDetailsList.forEach { productDetailsMap[it.productId] = it }
             }
         }
 
@@ -150,9 +150,9 @@ class BillingManager(
             .setProductList(subProducts)
             .build()
 
-        billingClient.queryProductDetailsAsync(subParams) { result, detailsList ->
+        billingClient.queryProductDetailsAsync(subParams) { result, queryProductDetailsResult ->
             if (result.responseCode == BillingClient.BillingResponseCode.OK) {
-                detailsList.forEach { productDetailsMap[it.productId] = it }
+                queryProductDetailsResult.productDetailsList.forEach { productDetailsMap[it.productId] = it }
             }
         }
     }

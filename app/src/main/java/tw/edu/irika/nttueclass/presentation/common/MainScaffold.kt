@@ -27,6 +27,12 @@ import tw.edu.irika.nttueclass.presentation.course.CourseScreen
 import tw.edu.irika.nttueclass.presentation.dashboard.DashboardScreen
 import tw.edu.irika.nttueclass.presentation.donation.DonationScreen
 import tw.edu.irika.nttueclass.presentation.navigation.Screen
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import tw.edu.irika.nttueclass.presentation.task.TaskScreen
 import tw.edu.irika.nttueclass.presentation.timetable.TimetableScreen
 import tw.edu.irika.nttueclass.ui.theme.NttuEclassTheme
@@ -46,6 +52,23 @@ fun MainScaffold(
     var showLogoutDialog by remember { mutableStateOf(false) }
     var isLoggedIn by remember { mutableStateOf(authManager.secureStorage.isLoggedIn()) }
     var currentStudentId by remember { mutableStateOf(authManager.secureStorage.getStudentId()) }
+
+    // Android 13+ 通知權限請求管理器
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
+    fun checkAndRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!hasPermission) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
 
     // 初始化離線預載資料
     LaunchedEffect(Unit) {
@@ -147,6 +170,7 @@ fun MainScaffold(
                 isLoggedIn = true
                 currentStudentId = studentId
                 showLoginDialog = false
+                checkAndRequestNotificationPermission()
             },
             onDismiss = { showLoginDialog = false }
         )

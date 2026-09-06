@@ -1,0 +1,44 @@
+# Development documents & Memory (Antigravity/Agent local files - Do NOT commit)
+.md/
+.antigravity/Gemini.md
+
+# Built application files
+*.apk
+*.aar
+*.ap_
+*.aab
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+build/
+.gradle/
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+.gradle
+captures/
+.externalNativeBuild
+.cxx
+local.properties
+
+# Keystore & Secrets (Never commit secrets!)
+*.jks
+*.keystore
+keystore.properties
+google-services.json
+
+# OS specific
+.DS_Store
+Thumbs.db
+

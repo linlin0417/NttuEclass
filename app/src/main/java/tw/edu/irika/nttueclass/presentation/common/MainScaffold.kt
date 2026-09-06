@@ -1,15 +1,25 @@
 package tw.edu.irika.nttueclass.presentation.common
 
+import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -47,9 +57,13 @@ fun MainScaffold(
 
     val systemInDark = isSystemInDarkTheme()
     var isDarkTheme by remember { mutableStateOf(systemInDark) }
-    var showPassPreviewDialog by remember { mutableStateOf(false) }
     var showLoginDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var showAboutDialog by remember { mutableStateOf(false) }
+    var showAdminPinDialog by remember { mutableStateOf(false) }
+    var adminPinInput by remember { mutableStateOf("") }
+    var adminPinError by remember { mutableStateOf(false) }
+    var versionTapCount by remember { mutableIntStateOf(0) }
     var isLoggedIn by remember { mutableStateOf(authManager.secureStorage.isLoggedIn()) }
     var currentStudentId by remember { mutableStateOf(authManager.secureStorage.getStudentId()) }
 
@@ -85,49 +99,59 @@ fun MainScaffold(
         Screen.Courses.route -> Screen.Courses
         Screen.Tasks.route -> Screen.Tasks
         Screen.Donation.route -> Screen.Donation
+        Screen.Pass.route -> Screen.Pass
+        Screen.Verifier.route -> Screen.Verifier
         else -> Screen.Dashboard
     }
 
     NttuEclassTheme(darkTheme = isDarkTheme) {
         Scaffold(
             topBar = {
-                AppTopBar(
-                    currentScreen = currentScreen,
-                    isDarkTheme = isDarkTheme,
-                    isLoggedIn = isLoggedIn,
-                    onOpenLogin = {
-                        if (isLoggedIn) {
-                            showLogoutDialog = true
-                        } else {
-                            showLoginDialog = true
-                        }
-                    },
-                    onToggleTheme = { isDarkTheme = !isDarkTheme },
-                    onOpenDonation = {
-                        navController.navigate(Screen.Donation.route) {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
+                if (currentScreen != Screen.Pass && currentScreen != Screen.Verifier) {
+                    AppTopBar(
+                        currentScreen = currentScreen,
+                        isDarkTheme = isDarkTheme,
+                        isLoggedIn = isLoggedIn,
+                        onOpenLogin = {
+                            if (isLoggedIn) {
+                                showLogoutDialog = true
+                            } else {
+                                showLoginDialog = true
                             }
-                            launchSingleTop = true
-                            restoreState = true
+                        },
+                        onToggleTheme = { isDarkTheme = !isDarkTheme },
+                        onOpenDonation = {
+                            navController.navigate(Screen.Donation.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        onOpenPass = { navController.navigate(Screen.Pass.route) },
+                        onOpenAbout = {
+                            versionTapCount = 0
+                            showAboutDialog = true
                         }
-                    },
-                    onOpenPass = { showPassPreviewDialog = true }
-                )
+                    )
+                }
             },
             bottomBar = {
-                AppBottomBar(
-                    currentRoute = currentRoute,
-                    onNavigate = { screen ->
-                        navController.navigate(screen.route) {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
+                if (currentScreen != Screen.Pass && currentScreen != Screen.Verifier) {
+                    AppBottomBar(
+                        currentRoute = currentRoute,
+                        onNavigate = { screen ->
+                            navController.navigate(screen.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                            launchSingleTop = true
-                            restoreState = true
                         }
-                    }
-                )
+                    )
+                }
             },
             modifier = modifier.fillMaxSize()
         ) { innerPadding ->
@@ -143,7 +167,7 @@ fun MainScaffold(
                         onNavigateToTimetable = { navController.navigate(Screen.Timetable.route) },
                         onNavigateToTasks = { navController.navigate(Screen.Tasks.route) },
                         onNavigateToCourses = { navController.navigate(Screen.Courses.route) },
-                        onOpenPass = { showPassPreviewDialog = true }
+                        onOpenPass = { navController.navigate(Screen.Pass.route) }
                     )
                 }
                 composable(Screen.Timetable.route) {
@@ -157,6 +181,16 @@ fun MainScaffold(
                 }
                 composable(Screen.Donation.route) {
                     DonationScreen()
+                }
+                composable(Screen.Pass.route) {
+                    tw.edu.irika.nttueclass.presentation.pass.NttuEPassScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+                composable(Screen.Verifier.route) {
+                    tw.edu.irika.nttueclass.presentation.pass.verifier.HiddenVerifierScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
                 }
             }
         }
@@ -202,20 +236,104 @@ fun MainScaffold(
         )
     }
 
-    // NttuEPass 快速出示預覽
-    if (showPassPreviewDialog) {
+    // 關於與版本資訊對話框 (包含連續點擊 7 次喚醒隱藏核銷 Easter egg)
+    if (showAboutDialog) {
         AlertDialog(
-            onDismissRequest = { showPassPreviewDialog = false },
-            title = { Text("NttuEPass 校園通行條碼") },
+            onDismissRequest = { showAboutDialog = false },
+            title = { Text("關於 NttuEclass 網路學園") },
             text = {
-                Text(
-                    if (isLoggedIn) "已綁定學號：${currentStudentId}\n\nNttuPass (Code 128 一維借書條碼：${currentStudentId}00) 與 NttuDataPass (ECC-256 二維碼) 將於 Phase 5 完整整合。"
-                    else "請先完成學號登入，即可啟用校內借書條碼與特權憑據功能。"
-                )
+                Column {
+                    Text(
+                        text = "專為國立臺東大學師生打造之次世代學園助理，提供課表提醒、作業追蹤、NttuEPass 校園條碼與雙主題體驗。",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "版本號：1.0.0 (Build 36)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable {
+                            versionTapCount++
+                            if (versionTapCount in 3..6) {
+                                Toast.makeText(
+                                    context,
+                                    "再連續點擊 ${7 - versionTapCount} 次以解鎖管理核銷驗證台",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else if (versionTapCount >= 7) {
+                                versionTapCount = 0
+                                showAboutDialog = false
+                                showAdminPinDialog = true
+                                adminPinInput = ""
+                                adminPinError = false
+                            }
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "© 2026 irika. All rights reserved.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             },
             confirmButton = {
-                TextButton(onClick = { showPassPreviewDialog = false }) {
-                    Text("知道了")
+                TextButton(onClick = { showAboutDialog = false }) {
+                    Text("關閉")
+                }
+            }
+        )
+    }
+
+    // 管理員 PIN 碼驗證對話框
+    if (showAdminPinDialog) {
+        AlertDialog(
+            onDismissRequest = { showAdminPinDialog = false },
+            title = { Text("管理員身分驗證") },
+            text = {
+                Column {
+                    Text(
+                        text = "請輸入管理 PIN 碼以啟動 NttuDataPass 隱藏核銷驗證台：",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = adminPinInput,
+                        onValueChange = {
+                            adminPinInput = it
+                            adminPinError = false
+                        },
+                        label = { Text("管理 PIN 碼") },
+                        placeholder = { Text("例如 0174 或 0000") },
+                        isError = adminPinError,
+                        supportingText = {
+                            if (adminPinError) {
+                                Text("PIN 碼驗證失敗，請重新輸入 (預設: 0174 或 0000)")
+                            }
+                        },
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val trimmed = adminPinInput.trim()
+                        if (trimmed == "0174" || trimmed == "0000") {
+                            showAdminPinDialog = false
+                            navController.navigate(Screen.Verifier.route)
+                        } else {
+                            adminPinError = true
+                        }
+                    }
+                ) {
+                    Text("驗證並進入")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAdminPinDialog = false }) {
+                    Text("取消")
                 }
             }
         )

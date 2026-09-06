@@ -6,6 +6,8 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.ui.graphics.vector.ImageVector
 
 sealed class Screen(
@@ -18,6 +20,8 @@ sealed class Screen(
     data object Courses : Screen("courses", "課程", Icons.AutoMirrored.Filled.MenuBook)
     data object Tasks : Screen("tasks", "作業", Icons.Default.CheckCircle)
     data object Donation : Screen("donation", "贊助", Icons.Default.Favorite)
+    data object Pass : Screen("pass", "通行證", Icons.Default.QrCode)
+    data object Verifier : Screen("verifier", "核銷台", Icons.Default.Security)
 
     companion object {
         val bottomNavScreens = listOf(Dashboard, Timetable, Courses, Tasks)

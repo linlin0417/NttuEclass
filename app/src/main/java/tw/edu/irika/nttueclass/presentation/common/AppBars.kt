@@ -5,6 +5,7 @@ import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +33,7 @@ fun AppTopBar(
     onToggleTheme: () -> Unit,
     onOpenDonation: () -> Unit,
     onOpenPass: () -> Unit,
+    onOpenAbout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     TopAppBar(
@@ -71,6 +73,13 @@ fun AppTopBar(
                 Icon(
                     imageVector = if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
                     contentDescription = "切換主題"
+                )
+            }
+            // 關於/設定
+            IconButton(onClick = onOpenAbout) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = "關於與版本資訊"
                 )
             }
         },

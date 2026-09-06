@@ -27,6 +27,24 @@ class SecureCredentialStorage(context: Context) {
         private const val KEY_PASSWORD = "password"
         private const val KEY_LAST_LOGIN_TIMESTAMP = "last_login_timestamp"
         private const val KEY_IS_LOGGED_IN = "is_logged_in"
+        private const val KEY_SPECIAL_TOKEN = "special_token"
+        private const val KEY_DONATION_INTEGER = "donation_integer"
+    }
+
+    fun getSpecialToken(): String? = prefs.getString(KEY_SPECIAL_TOKEN, null)
+
+    fun saveSpecialToken(token: String?) {
+        prefs.edit()
+            .putString(KEY_SPECIAL_TOKEN, token?.trim())
+            .apply()
+    }
+
+    fun getDonationInteger(): Long = prefs.getLong(KEY_DONATION_INTEGER, 0L)
+
+    fun saveDonationInteger(value: Long) {
+        prefs.edit()
+            .putLong(KEY_DONATION_INTEGER, value)
+            .apply()
     }
 
     fun saveCredentials(studentId: String, password: String) {

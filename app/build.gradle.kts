@@ -21,8 +21,8 @@ android {
         applicationId = "tw.edu.irika.nttueclass"
         minSdk = 31
         targetSdk = 36
-        versionCode = 10001
-        versionName = "1.0.0"
+        versionCode = 10002
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -119,6 +119,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     implementation(libs.jsoup)
+    implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
 
     // Google Play
     implementation(libs.play.billing.ktx)

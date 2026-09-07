@@ -76,25 +76,63 @@ class EclassRepository(context: Context) {
     }
 
     private suspend fun syncTimetable() {
-        val request = Request.Builder()
-            .url("${NttuHttpClient.BASE_URL}/app/course/schedule.php")
-            .build()
-        val response = client.newCall(request).execute()
-        val html = response.body?.string() ?: return
-        val slots = TimetableHtmlParser.parse(html)
-        database.timetableDao().deleteAll()
-        if (slots.isNotEmpty()) {
-            database.timetableDao().insertAll(slots.map { TimetableSlotEntity.fromDomain(it) })
+        val urls = listOf(
+            "${NttuHttpClient.BASE_URL}/dashboard/myTimeTable",
+            "${NttuHttpClient.BASE_URL}/schedule",
+            "${NttuHttpClient.BASE_URL}/app/course/schedule.php"
+        )
+        for (url in urls) {
+            try {
+                val request = Request.Builder().url(url).build()
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val html = response.body?.string().orEmpty()
+                    val slots = TimetableHtmlParser.parse(html)
+                    if (slots.isNotEmpty()) {
+                        // 若本地現有課程已有教師資料，自動對照補齊課表缺少的授課教師
+                        val existingCourses = database.courseDao().getAllCoursesList()
+                        val enrichedSlots = slots.map { slot ->
+                            if (slot.instructor.isBlank()) {
+                                val match = existingCourses.firstOrNull { it.id == slot.courseId || it.name == slot.courseName }
+                                if (match != null && match.instructor.isNotBlank()) {
+                                    slot.copy(instructor = match.instructor)
+                                } else slot
+                            } else slot
+                        }
+
+                        database.timetableDao().deleteAll()
+                        database.timetableDao().insertAll(enrichedSlots.map { TimetableSlotEntity.fromDomain(it) })
+                        break
+                    }
+                }
+            } catch (_: Exception) {
+                // 防禦性容錯，嘗試下一個可能路徑
+            }
         }
     }
 
     private suspend fun syncCourses() {
-        val request = Request.Builder()
-            .url("${NttuHttpClient.BASE_URL}/app/course/")
-            .build()
-        val response = try { client.newCall(request).execute() } catch (_: Exception) { null }
-        val html = response?.body?.string() ?: ""
-        val parsedCourses = if (html.isNotBlank()) CourseHtmlParser.parse(html) else emptyList()
+        val urls = listOf(
+            "${NttuHttpClient.BASE_URL}/dashboard",
+            "${NttuHttpClient.BASE_URL}/course",
+            "${NttuHttpClient.BASE_URL}/app/course/"
+        )
+        var parsedCourses: List<Course> = emptyList()
+        for (url in urls) {
+            try {
+                val request = Request.Builder().url(url).build()
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val html = response.body?.string().orEmpty()
+                    val list = CourseHtmlParser.parse(html)
+                    if (list.isNotEmpty()) {
+                        parsedCourses = list
+                        break
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
 
         // 從課表插槽互補提取課程，確保離線與任何網路頁面結構變更下選修課均不遺漏
         val slots = database.timetableDao().getAllSlotsList()
@@ -127,45 +165,130 @@ class EclassRepository(context: Context) {
             enrichedParsed + extraCourses
         }
 
-        database.courseDao().deleteAll()
+        // 僅在獲取到有效課程時更新，絕不因網路異常抹除現有課表建立的課程
         if (mergedCourses.isNotEmpty()) {
+            database.courseDao().deleteAll()
             database.courseDao().insertAll(mergedCourses.map { CourseEntity.fromDomain(it) })
         }
     }
 
     private suspend fun syncAnnouncements() {
-        val request = Request.Builder()
-            .url("${NttuHttpClient.BASE_URL}/app/bulletin/")
-            .build()
-        val response = client.newCall(request).execute()
-        val html = response.body?.string() ?: return
-        val announcements = AnnouncementHtmlParser.parse(html)
-        database.announcementDao().deleteAll()
-        if (announcements.isNotEmpty()) {
-            database.announcementDao().insertAll(announcements.map { AnnouncementEntity.fromDomain(it) })
+        val urls = listOf(
+            "${NttuHttpClient.BASE_URL}/dashboard/latestBulletin",
+            "${NttuHttpClient.BASE_URL}/bulletin",
+            "${NttuHttpClient.BASE_URL}/app/bulletin/"
+        )
+        for (url in urls) {
+            try {
+                val request = Request.Builder().url(url).build()
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val html = response.body?.string().orEmpty()
+                    val announcements = AnnouncementHtmlParser.parse(html)
+                    if (announcements.isNotEmpty()) {
+                        database.announcementDao().deleteAll()
+                        database.announcementDao().insertAll(announcements.map { AnnouncementEntity.fromDomain(it) })
+                        break
+                    }
+                }
+            } catch (_: Exception) {
+            }
         }
     }
 
     private suspend fun syncTasks() {
-        val homeworkReq = Request.Builder()
-            .url("${NttuHttpClient.BASE_URL}/app/homework/")
-            .build()
-        val homeworkResp = client.newCall(homeworkReq).execute()
-        val homeworkHtml = homeworkResp.body?.string() ?: ""
-        val assignments = TaskHtmlParser.parse(homeworkHtml, defaultType = TaskType.ASSIGNMENT)
+        val homeworkUrls = listOf(
+            "${NttuHttpClient.BASE_URL}/homework",
+            "${NttuHttpClient.BASE_URL}/app/homework/"
+        )
+        var assignments: List<TaskItem> = emptyList()
+        for (url in homeworkUrls) {
+            try {
+                val homeworkReq = Request.Builder().url(url).build()
+                val homeworkResp = client.newCall(homeworkReq).execute()
+                if (homeworkResp.isSuccessful) {
+                    val homeworkHtml = homeworkResp.body?.string().orEmpty()
+                    val list = TaskHtmlParser.parse(homeworkHtml, defaultType = TaskType.ASSIGNMENT)
+                    if (list.isNotEmpty()) {
+                        assignments = list
+                        break
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
 
-        val examReq = Request.Builder()
-            .url("${NttuHttpClient.BASE_URL}/app/exam/")
-            .build()
-        val examResp = client.newCall(examReq).execute()
-        val examHtml = examResp.body?.string() ?: ""
-        val exams = TaskHtmlParser.parse(examHtml, defaultType = TaskType.QUIZ)
+        val examUrls = listOf(
+            "${NttuHttpClient.BASE_URL}/exam",
+            "${NttuHttpClient.BASE_URL}/app/exam/"
+        )
+        var exams: List<TaskItem> = emptyList()
+        for (url in examUrls) {
+            try {
+                val examReq = Request.Builder().url(url).build()
+                val examResp = client.newCall(examReq).execute()
+                if (examResp.isSuccessful) {
+                    val examHtml = examResp.body?.string().orEmpty()
+                    val list = TaskHtmlParser.parse(examHtml, defaultType = TaskType.QUIZ)
+                    if (list.isNotEmpty()) {
+                        exams = list
+                        break
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
 
         val allTasks = assignments + exams
-        database.taskDao().deleteAll()
         if (allTasks.isNotEmpty()) {
+            database.taskDao().deleteAll()
             database.taskDao().insertAll(allTasks.map { TaskEntity.fromDomain(it) })
         }
+    }
+
+    // ==========================================
+    // 本地課程與課表 CRUD 管理 (Local Schedule & Course CRUD)
+    // ==========================================
+    suspend fun addTimetableSlot(slot: TimetableSlot) = withContext(Dispatchers.IO) {
+        database.timetableDao().insertSlot(TimetableSlotEntity.fromDomain(slot))
+        // 同步自動註冊/更新對應之課程
+        val currentSem = AcademicTermHelper.getCurrentSemesterCode()
+        val existing = database.courseDao().getCourseById(slot.courseId)
+        if (existing == null) {
+            database.courseDao().insertCourse(
+                CourseEntity(
+                    id = slot.courseId,
+                    code = "",
+                    name = slot.courseName,
+                    instructor = slot.instructor,
+                    classroom = slot.classroom,
+                    credits = 0,
+                    semester = currentSem
+                )
+            )
+        } else {
+            database.courseDao().insertCourse(
+                existing.copy(
+                    classroom = slot.classroom.ifBlank { existing.classroom },
+                    instructor = slot.instructor.ifBlank { existing.instructor }
+                )
+            )
+        }
+        updateCourseCounters()
+    }
+
+    suspend fun deleteTimetableSlot(dayOfWeek: Int, periodNumber: Int) = withContext(Dispatchers.IO) {
+        val id = "${dayOfWeek}_${periodNumber}"
+        database.timetableDao().deleteSlotById(id)
+    }
+
+    suspend fun addCourse(course: Course) = withContext(Dispatchers.IO) {
+        database.courseDao().insertCourse(CourseEntity.fromDomain(course))
+        updateCourseCounters()
+    }
+
+    suspend fun deleteCourse(courseId: String) = withContext(Dispatchers.IO) {
+        database.courseDao().deleteCourseById(courseId)
     }
 
     /**

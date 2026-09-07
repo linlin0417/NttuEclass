@@ -77,6 +77,12 @@ import tw.edu.irika.nttueclass.domain.model.Announcement
 import tw.edu.irika.nttueclass.domain.model.Course
 import tw.edu.irika.nttueclass.domain.model.StandardPeriods
 import tw.edu.irika.nttueclass.domain.model.TaskItem
+import android.widget.Toast
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import tw.edu.irika.nttueclass.domain.model.TimetableSlot
 
 @Composable
@@ -88,8 +94,10 @@ fun CourseScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var searchQuery by remember { mutableStateOf("") }
     var selectedTab by remember { mutableIntStateOf(0) } // 0: 本學期課程, 1: 最新公告
+    var showAddCourseDialog by remember { mutableStateOf(false) }
 
     // 從真實 Room 資料庫訂閱所有相關資料流
     val courses by repository.getCoursesStream().collectAsState(initial = emptyList())
@@ -101,210 +109,243 @@ fun CourseScreen(
     var selectedCourseForDetail by remember { mutableStateOf<Course?>(null) }
     var selectedAnnouncementForDetail by remember { mutableStateOf<Announcement?>(null) }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-    ) {
-        // 搜尋框
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            placeholder = { Text("搜尋課程名稱、教師或公告內容") },
-            leadingIcon = {
-                Icon(imageVector = Icons.Default.Search, contentDescription = null)
-            },
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline
-            ),
-            singleLine = true
-        )
-
-        // 分頁標籤 (本學期課程 / 全部公告)
-        TabRow(
-            selectedTabIndex = selectedTab,
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.primary
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
         ) {
-            Tab(
-                selected = selectedTab == 0,
-                onClick = { selectedTab = 0 },
-                text = { Text("本學期課程 (${courses.size})") }
+            // 搜尋框
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("搜尋課程名稱、教師或公告內容") },
+                leadingIcon = {
+                    Icon(imageVector = Icons.Default.Search, contentDescription = null)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                ),
+                singleLine = true
             )
-            Tab(
-                selected = selectedTab == 1,
-                onClick = { selectedTab = 1 },
-                text = { Text("課程公告 (${announcements.size})") }
-            )
+
+            // 分頁標籤 (本學期課程 / 全部公告)
+            TabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.primary
+            ) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("本學期課程 (${courses.size})") }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text("課程公告 (${announcements.size})") }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (selectedTab == 0) {
+                val filteredCourses = courses.filter {
+                    it.name.contains(searchQuery, ignoreCase = true) ||
+                            it.instructor.contains(searchQuery, ignoreCase = true) ||
+                            it.classroom.contains(searchQuery, ignoreCase = true)
+                }
+
+                if (filteredCourses.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Class,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.size(56.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = if (searchQuery.isNotBlank()) "查無符合條件之課程" else "目前尚無課程資料",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = if (searchQuery.isNotBlank()) "請嘗試更換關鍵字重新搜尋。"
+                                else if (isLoggedIn) "已登入學生身分！您可手動新增課程，或點擊同步學校課程。"
+                                else "尚未登入學生帳號，請先登入以載入本學期選修課程。",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                            if (searchQuery.isBlank()) {
+                                Spacer(modifier = Modifier.height(20.dp))
+                                if (isLoggedIn) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.fillMaxWidth(0.9f)
+                                    ) {
+                                        Button(
+                                            onClick = { showAddCourseDialog = true },
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("手動新增課程", fontWeight = FontWeight.Bold)
+                                        }
+                                        OutlinedButton(
+                                            onClick = onSync,
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("立即同步學校課程", fontWeight = FontWeight.SemiBold)
+                                        }
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = onOpenLogin,
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("登入帳號載入課程", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(filteredCourses) { course ->
+                            CourseCard(
+                                course = course,
+                                onClick = { selectedCourseForDetail = course }
+                            )
+                        }
+                        item { Spacer(modifier = Modifier.height(16.dp)) }
+                    }
+                }
+            } else {
+                val filteredAnnouncements = announcements.filter {
+                    it.title.contains(searchQuery, ignoreCase = true) ||
+                            it.courseName.contains(searchQuery, ignoreCase = true) ||
+                            it.author.contains(searchQuery, ignoreCase = true)
+                }
+
+                if (filteredAnnouncements.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Campaign,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.size(56.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = if (searchQuery.isNotBlank()) "查無符合條件之公告" else "目前暫無最新公告",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = if (searchQuery.isNotBlank()) "請嘗試更換關鍵字重新搜尋。"
+                                else if (isLoggedIn) "已登入學生帳號，請點擊下方按鈕拉取最新公告。"
+                                else "尚未登入學生帳號，請先登入以載入最新課程公告。",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                            if (searchQuery.isBlank()) {
+                                Spacer(modifier = Modifier.height(20.dp))
+                                if (isLoggedIn) {
+                                    Button(
+                                        onClick = onSync,
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("立即同步公告", fontWeight = FontWeight.Bold)
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = onOpenLogin,
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("登入帳號載入公告", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(filteredAnnouncements) { announcement ->
+                            AnnouncementCard(
+                                announcement = announcement,
+                                onClick = { selectedAnnouncementForDetail = announcement }
+                            )
+                        }
+                        item { Spacer(modifier = Modifier.height(16.dp)) }
+                    }
+                }
+            }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        if (selectedTab == 0) {
-            val filteredCourses = courses.filter {
-                it.name.contains(searchQuery, ignoreCase = true) ||
-                        it.instructor.contains(searchQuery, ignoreCase = true) ||
-                        it.classroom.contains(searchQuery, ignoreCase = true)
-            }
-
-            if (filteredCourses.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Class,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(56.dp)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = if (searchQuery.isNotBlank()) "查無符合條件之課程" else "目前尚無課程資料",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = if (searchQuery.isNotBlank()) "請嘗試更換關鍵字重新搜尋。"
-                            else if (isLoggedIn) "已登入學生帳號，請點擊下方按鈕同步本學期課程。"
-                            else "尚未登入學生帳號，請先登入以載入本學期選修課程。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                        if (searchQuery.isBlank()) {
-                            Spacer(modifier = Modifier.height(20.dp))
-                            if (isLoggedIn) {
-                                Button(
-                                    onClick = onSync,
-                                    shape = RoundedCornerShape(10.dp)
-                                ) {
-                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("立即同步課程", fontWeight = FontWeight.Bold)
-                                }
-                            } else {
-                                Button(
-                                    onClick = onOpenLogin,
-                                    shape = RoundedCornerShape(10.dp)
-                                ) {
-                                    Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("登入帳號載入課程", fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(filteredCourses) { course ->
-                        CourseCard(
-                            course = course,
-                            onClick = { selectedCourseForDetail = course }
-                        )
-                    }
-                    item { Spacer(modifier = Modifier.height(16.dp)) }
-                }
-            }
-        } else {
-            val filteredAnnouncements = announcements.filter {
-                it.title.contains(searchQuery, ignoreCase = true) ||
-                        it.courseName.contains(searchQuery, ignoreCase = true) ||
-                        it.author.contains(searchQuery, ignoreCase = true)
-            }
-
-            if (filteredAnnouncements.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Campaign,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(56.dp)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = if (searchQuery.isNotBlank()) "查無符合條件之公告" else "目前暫無最新公告",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = if (searchQuery.isNotBlank()) "請嘗試更換關鍵字重新搜尋。"
-                            else if (isLoggedIn) "已登入學生帳號，請點擊下方按鈕拉取最新公告。"
-                            else "尚未登入學生帳號，請先登入以載入最新課程公告。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                        if (searchQuery.isBlank()) {
-                            Spacer(modifier = Modifier.height(20.dp))
-                            if (isLoggedIn) {
-                                Button(
-                                    onClick = onSync,
-                                    shape = RoundedCornerShape(10.dp)
-                                ) {
-                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("立即同步公告", fontWeight = FontWeight.Bold)
-                                }
-                            } else {
-                                Button(
-                                    onClick = onOpenLogin,
-                                    shape = RoundedCornerShape(10.dp)
-                                ) {
-                                    Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("登入帳號載入公告", fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(filteredAnnouncements) { announcement ->
-                        AnnouncementCard(
-                            announcement = announcement,
-                            onClick = { selectedAnnouncementForDetail = announcement }
-                        )
-                    }
-                    item { Spacer(modifier = Modifier.height(16.dp)) }
-                }
+        // 浮動新增課程按鈕 (FAB)
+        if (isLoggedIn && selectedTab == 0) {
+            FloatingActionButton(
+                onClick = { showAddCourseDialog = true },
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(20.dp)
+            ) {
+                Icon(imageVector = Icons.Default.Add, contentDescription = "手動新增課程")
             }
         }
     }
 
-    // 課程詳細資訊對話框
+    // 課程詳細資訊對話框 (支援刪除)
     selectedCourseForDetail?.let { course ->
         val courseAnnouncements = remember(announcements, course) {
             announcements.filter { it.courseName.contains(course.name) || course.name.contains(it.courseName) || it.courseId == course.id }
@@ -330,7 +371,28 @@ fun CourseScreen(
                 selectedCourseForDetail = null
                 selectedAnnouncementForDetail = ann
             },
+            onDelete = {
+                scope.launch {
+                    repository.deleteCourse(course.id)
+                    Toast.makeText(context, "已刪除「${course.name}」課程", Toast.LENGTH_SHORT).show()
+                }
+                selectedCourseForDetail = null
+            },
             onDismiss = { selectedCourseForDetail = null }
+        )
+    }
+
+    // 新增自訂課程對話框
+    if (showAddCourseDialog) {
+        AddCourseDialog(
+            onSave = { newCourse ->
+                scope.launch {
+                    repository.addCourse(newCourse)
+                    Toast.makeText(context, "已新增「${newCourse.name}」課程", Toast.LENGTH_SHORT).show()
+                }
+                showAddCourseDialog = false
+            },
+            onDismiss = { showAddCourseDialog = false }
         )
     }
 
@@ -568,6 +630,7 @@ private fun CourseDetailDialog(
     tasks: List<TaskItem>,
     onOpenWeb: () -> Unit,
     onSelectAnnouncement: (Announcement) -> Unit,
+    onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val weekdayNames = listOf("", "週一", "週二", "週三", "週四", "週五", "週六", "週日")
@@ -731,15 +794,137 @@ private fun CourseDetailDialog(
             }
         },
         confirmButton = {
-            Button(onClick = onOpenWeb) {
-                Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("開啟 eClass 頁面")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    onClick = onDelete,
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("刪除課程")
+                }
+                Row {
+                    Button(onClick = onOpenWeb) {
+                        Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("開啟 eClass")
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    TextButton(onClick = onDismiss) {
+                        Text("關閉")
+                    }
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun AddCourseDialog(
+    onSave: (Course) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
+    var instructor by remember { mutableStateOf("") }
+    var classroom by remember { mutableStateOf("") }
+    var creditsText by remember { mutableStateOf("3") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("手動新增課程", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (errorMessage != null) {
+                    Text(errorMessage ?: "", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        if (it.isNotBlank()) errorMessage = null
+                    },
+                    label = { Text("課程名稱 *") },
+                    placeholder = { Text("例如：資料結構、微積分") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = instructor,
+                    onValueChange = { instructor = it },
+                    label = { Text("授課教師 (選填)") },
+                    placeholder = { Text("例如：李教授") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = classroom,
+                    onValueChange = { classroom = it },
+                    label = { Text("上課教室 (選填)") },
+                    placeholder = { Text("例如：理工大樓 B101") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = creditsText,
+                        onValueChange = { creditsText = it.filter { ch -> ch.isDigit() } },
+                        label = { Text("學分數") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = code,
+                        onValueChange = { code = it },
+                        label = { Text("課程代碼 (選填)") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (name.isBlank()) {
+                        errorMessage = "請填寫課程名稱"
+                        return@Button
+                    }
+                    val currentSem = AcademicTermHelper.getCurrentSemesterCode()
+                    val course = Course(
+                        id = "c_${name.hashCode()}",
+                        code = code.trim(),
+                        name = name.trim(),
+                        instructor = instructor.trim(),
+                        classroom = classroom.trim(),
+                        credits = creditsText.toIntOrNull() ?: 0,
+                        semester = currentSem
+                    )
+                    onSave(course)
+                }
+            ) {
+                Text("儲存課程")
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("關閉")
+                Text("取消")
             }
         }
     )

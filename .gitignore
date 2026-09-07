@@ -1,6 +1,13 @@
 # Development documents & Memory (Antigravity/Agent local files - Do NOT commit)
 .md/
-.antigravity/Gemini.md
+.antigravity/
+scratch/
+node_modules/
+index.html
+*.html
+
+# IDE & Editor files
+.vscode/
 
 # Built application files
 *.apk

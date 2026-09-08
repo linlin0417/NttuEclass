@@ -71,6 +71,7 @@ fun DashboardScreen(
 ) {
     // 訂閱真實資料流 (無任何寫死假資料)
     val timetableSlots by repository.getTimetableStream().collectAsState(initial = emptyList())
+    val courses by repository.getCoursesStream().collectAsState(initial = emptyList())
     val tasks by repository.getTasksStream().collectAsState(initial = emptyList())
     val announcements by repository.getAnnouncementsStream().collectAsState(initial = emptyList())
 
@@ -124,10 +125,10 @@ fun DashboardScreen(
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { Spacer(modifier = Modifier.height(4.dp)) }
+        item(key = "top_spacer") { Spacer(modifier = Modifier.height(4.dp)) }
 
         // 1. 歡迎與學期真實資訊
-        item {
+        item(key = "header") {
             HeaderSection(
                 greeting = if (isLoggedIn && !currentStudentId.isNullOrBlank()) "${currentStudentId} 同學，你好！" else "同學，你好！",
                 subtitle = dateSubtitle
@@ -135,9 +136,10 @@ fun DashboardScreen(
         }
 
         // 2. 下一堂課指引卡片 (動態計算真實課堂)
-        item {
+        item(key = "next_class") {
             NextClassCard(
                 slot = nextSlot,
+                courses = courses,
                 hasClassesToday = todaySlots.isNotEmpty(),
                 isScheduleEmpty = timetableSlots.isEmpty(),
                 onClick = onNavigateToTimetable
@@ -145,12 +147,12 @@ fun DashboardScreen(
         }
 
         // 3. NttuEPass 校園通行快捷卡
-        item {
+        item(key = "pass_banner") {
             NttuPassBanner(onOpenPass = onOpenPass)
         }
 
         // 4. 即將截止作業/測驗預警 (真實待辦)
-        item {
+        item(key = "urgent_tasks") {
             UrgentTasksCard(
                 urgentTask = urgentTask,
                 hasTasks = tasks.isNotEmpty(),
@@ -159,14 +161,14 @@ fun DashboardScreen(
         }
 
         // 5. 最新課程公告 (真實公告)
-        item {
+        item(key = "latest_notices") {
             LatestNoticesCard(
                 notices = latestNotices,
                 onClick = onNavigateToCourses
             )
         }
 
-        item { Spacer(modifier = Modifier.height(16.dp)) }
+        item(key = "bottom_spacer") { Spacer(modifier = Modifier.height(16.dp)) }
     }
 }
 
@@ -194,6 +196,7 @@ private fun HeaderSection(
 @Composable
 private fun NextClassCard(
     slot: TimetableSlot?,
+    courses: List<tw.edu.irika.nttueclass.domain.model.Course> = emptyList(),
     hasClassesToday: Boolean,
     isScheduleEmpty: Boolean,
     onClick: () -> Unit
@@ -368,21 +371,28 @@ private fun NextClassCard(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = slot.instructor,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        val teacher = slot.instructor.ifBlank {
+                            courses.firstOrNull { c ->
+                                c.id == slot.courseId || c.name.contains(slot.courseName) || slot.courseName.contains(c.name)
+                            }?.instructor.orEmpty()
+                        }
+                        if (teacher.isNotBlank()) {
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = teacher,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
             }

@@ -201,12 +201,12 @@ class AuthManager(private val context: Context) {
                         return@withContext if (failureCount >= AuthLockoutManager.MAX_FAILED_ATTEMPTS) {
                             AuthResult.LockedOut(
                                 remainingSeconds = AuthLockoutManager.LOCKOUT_DURATION_MS / 1000,
-                                message = "已連續 5 次密碼錯誤！本地已自動熔斷鎖定 30 分鐘，杜絕遭學校系統進一步封鎖。"
+                                message = "已連續 5 次密碼錯誤！帳號已啟動 30 分鐘保護冷卻時間。"
                             )
                         } else {
                             AuthResult.InvalidCredentials(
                                 remainingAttempts = remaining,
-                                message = "學號或密碼錯誤！剩餘 $remaining 次安全嘗試機會。"
+                                message = "學號或密碼錯誤！剩餘 $remaining 次嘗試機會。"
                             )
                         }
                     }

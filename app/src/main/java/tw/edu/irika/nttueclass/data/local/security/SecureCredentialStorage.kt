@@ -8,6 +8,10 @@ import androidx.security.crypto.MasterKey
 class SecureCredentialStorage(context: Context) {
     private val prefs: SharedPreferences
 
+    // 記憶體快取：避免每次 Flow emit 都觸發 EncryptedSharedPreferences AES-GCM 解密
+    @Volatile
+    private var cachedLoggedIn: Boolean? = null
+
     init {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -20,6 +24,9 @@ class SecureCredentialStorage(context: Context) {
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
+
+        // 初始化時預載快取，後續讀取不再觸發解密
+        cachedLoggedIn = prefs.getBoolean(KEY_IS_LOGGED_IN, false)
     }
 
     companion object {
@@ -55,13 +62,16 @@ class SecureCredentialStorage(context: Context) {
             .putLong(KEY_LAST_LOGIN_TIMESTAMP, System.currentTimeMillis())
             .putBoolean(KEY_IS_LOGGED_IN, true)
             .apply()
+        cachedLoggedIn = true
     }
 
     fun getStudentId(): String? = prefs.getString(KEY_STUDENT_ID, null)
 
     fun getPassword(): String? = prefs.getString(KEY_PASSWORD, null)
 
-    fun isLoggedIn(): Boolean = prefs.getBoolean(KEY_IS_LOGGED_IN, false)
+    fun isLoggedIn(): Boolean {
+        return cachedLoggedIn ?: prefs.getBoolean(KEY_IS_LOGGED_IN, false).also { cachedLoggedIn = it }
+    }
 
     fun clearCredentials() {
         prefs.edit()
@@ -70,5 +80,6 @@ class SecureCredentialStorage(context: Context) {
             .remove(KEY_LAST_LOGIN_TIMESTAMP)
             .putBoolean(KEY_IS_LOGGED_IN, false)
             .apply()
+        cachedLoggedIn = false
     }
 }

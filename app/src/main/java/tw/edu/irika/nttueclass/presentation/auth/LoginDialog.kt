@@ -92,39 +92,40 @@ fun LoginDialog(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // 防鎖定警示公告卡片
-                Surface(
-                    color = if (isLocked) StatusUrgent.copy(alpha = 0.12f)
-                    else if (shouldWarn) StatusWarning.copy(alpha = 0.15f)
-                    else MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.Top
+                // 僅在有鎖定風險或已鎖定時顯示警示卡片
+                if (isLocked || shouldWarn) {
+                    Surface(
+                        color = if (isLocked) StatusUrgent.copy(alpha = 0.12f)
+                        else StatusWarning.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = null,
-                            tint = if (isLocked) StatusUrgent else if (shouldWarn) StatusWarning else MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text(
-                                text = if (isLocked) "已觸發本地保護熔斷鎖定"
-                                else "校方防鎖定重要守則",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isLocked) StatusUrgent else MaterialTheme.colorScheme.onSurface
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = if (isLocked) StatusUrgent else StatusWarning,
+                                modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = if (isLocked) "密碼已達 5 次錯誤，本地強制冷卻 30 分鐘防護中。"
-                                else "密碼連續錯誤 5 次將被學校系統鎖定 30 分鐘且無法人工解鎖。目前剩餘 $remainingAttempts 次嘗試機會。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = if (isLocked) "帳號暫時鎖定保護中"
+                                    else "登入安全提醒",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isLocked) StatusUrgent else MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (isLocked) "密碼已達 5 次錯誤，系統防護冷卻 30 分鐘中。"
+                                    else "密碼輸入錯誤，目前剩餘 $remainingAttempts 次嘗試機會。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }

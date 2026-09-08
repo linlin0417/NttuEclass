@@ -46,6 +46,10 @@ object StandardPeriods {
         Period(14, "E", "節次 E", "21:10", "22:00", PeriodCategory.NIGHT)
     )
 
-    fun getByPeriodNumber(number: Int): Period? = allPeriods.find { it.periodNumber == number }
-    fun getByPeriodCode(code: String): Period? = allPeriods.find { it.periodCode.equals(code, ignoreCase = true) }
+    // O(1) 查找表：取代原先的 find 線性搜尋
+    private val byPeriodNumber: Map<Int, Period> = allPeriods.associateBy { it.periodNumber }
+    private val byPeriodCode: Map<String, Period> = allPeriods.associateBy { it.periodCode.lowercase() }
+
+    fun getByPeriodNumber(number: Int): Period? = byPeriodNumber[number]
+    fun getByPeriodCode(code: String): Period? = byPeriodCode[code.lowercase()]
 }

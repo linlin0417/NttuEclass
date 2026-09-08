@@ -56,7 +56,6 @@ import tw.edu.irika.nttueclass.data.remote.billing.BillingManager
 import tw.edu.irika.nttueclass.data.remote.billing.BillingProducts
 import tw.edu.irika.nttueclass.pass.crypto.DonationData
 import tw.edu.irika.nttueclass.pass.crypto.DonationIntegerHelper
-import tw.edu.irika.nttueclass.security.AppIntegrityChecker
 
 @Composable
 fun DonationScreen(
@@ -70,8 +69,6 @@ fun DonationScreen(
     val donationData by billingManager.donationData.collectAsState()
     val statusMessage by billingManager.statusMessage.collectAsState()
 
-    val integrityResult = remember { AppIntegrityChecker.checkLocalIntegrity(context) }
-
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -82,7 +79,7 @@ fun DonationScreen(
 
         // 標題與簡介
         item {
-            DonationHeader(isConnected = isConnected, integrityMessage = integrityResult.message)
+            DonationHeader(isConnected = isConnected)
         }
 
         // 當前贊助整數與徽章狀態卡片 (Live Status)
@@ -220,7 +217,7 @@ fun DonationScreen(
 }
 
 @Composable
-private fun DonationHeader(isConnected: Boolean, integrityMessage: String) {
+private fun DonationHeader(isConnected: Boolean) {
     Column {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -233,27 +230,23 @@ private fun DonationHeader(isConnected: Boolean, integrityMessage: String) {
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            AssistChip(
-                onClick = {},
-                label = {
-                    Text(
-                        if (isConnected) "Google Play 已連線" else "安全離線保護模式",
-                        fontSize = 10.sp
-                    )
-                }
-            )
+            if (!isConnected) {
+                AssistChip(
+                    onClick = {},
+                    label = {
+                        Text(
+                            "離線模式",
+                            fontSize = 10.sp
+                        )
+                    }
+                )
+            }
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "本應用為學生社群自主維護之開源工具，完全無廣告。所有贊助均嚴格遵循 Google Play 開發者政策結算通道，守護帳號安全！",
+            text = "本應用為開源社群維護工具。感謝每一位贊助者的支持，讓 NttuEclass 持續提供更好的功能與服務！",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "完整性檢驗：$integrityMessage",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary
         )
     }
 }

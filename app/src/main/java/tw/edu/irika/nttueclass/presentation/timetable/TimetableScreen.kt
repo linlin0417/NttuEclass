@@ -96,8 +96,9 @@ fun TimetableScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var editingSlot by remember { mutableStateOf<TimetableSlot?>(null) }
 
-    // 從真實 Room 資料庫訂閱課表資料流 (無任何寫死假資料)
+    // 從真實 Room 資料庫訂閱課表與課程資料流 (無任何寫死假資料)
     val slots by repository.getTimetableStream().collectAsState(initial = emptyList())
+    val courses by repository.getCoursesStream().collectAsState(initial = emptyList())
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(
@@ -211,9 +212,14 @@ fun TimetableScreen(
                         onSlotClick = { selectedSlotForDetail = it }
                     )
                 } else {
+                    // 預先過濾當日課表，避免在 Composable 內重複計算
+                    val daySlots = remember(slots, selectedDay) {
+                        slots.filter { it.dayOfWeek == selectedDay }
+                    }
                     DayTimelineView(
                         dayOfWeek = selectedDay,
-                        slots = slots.filter { it.dayOfWeek == selectedDay },
+                        slots = daySlots,
+                        courses = courses,
                         isDark = isDark,
                         onSlotClick = { selectedSlotForDetail = it }
                     )
@@ -241,6 +247,7 @@ fun TimetableScreen(
     selectedSlotForDetail?.let { slot ->
         CourseDetailDialog(
             slot = slot,
+            courses = courses,
             isDark = isDark,
             onEdit = {
                 editingSlot = slot
@@ -261,6 +268,7 @@ fun TimetableScreen(
     if (showAddDialog) {
         AddEditSlotDialog(
             initialSlot = null,
+            courses = courses,
             defaultDayOfWeek = selectedDay,
             onSave = { newSlot ->
                 scope.launch {
@@ -277,6 +285,7 @@ fun TimetableScreen(
     editingSlot?.let { slot ->
         AddEditSlotDialog(
             initialSlot = slot,
+            courses = courses,
             defaultDayOfWeek = slot.dayOfWeek,
             onSave = { updatedSlot ->
                 scope.launch {
@@ -365,18 +374,27 @@ private fun TimetableControlsBar(
 private fun DayTimelineView(
     dayOfWeek: Int,
     slots: List<TimetableSlot>,
+    courses: List<tw.edu.irika.nttueclass.domain.model.Course> = emptyList(),
     isDark: Boolean,
     onSlotClick: (TimetableSlot) -> Unit
 ) {
+    // O(1) 查找表：避免每個節次都對 slots 做 O(n) find
+    val slotMap = remember(slots) {
+        slots.associateBy { it.periodNumber }
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(StandardPeriods.allPeriods) { period ->
-            val slot = slots.find { it.periodNumber == period.periodNumber }
+        items(
+            items = StandardPeriods.allPeriods,
+            key = { it.periodNumber }
+        ) { period ->
+            val slot = slotMap[period.periodNumber]
             PeriodRow(
                 period = period,
                 slot = slot,
+                courses = courses,
                 isDark = isDark,
                 onSlotClick = onSlotClick
             )
@@ -389,6 +407,7 @@ private fun DayTimelineView(
 private fun PeriodRow(
     period: Period,
     slot: TimetableSlot?,
+    courses: List<tw.edu.irika.nttueclass.domain.model.Course> = emptyList(),
     isDark: Boolean,
     onSlotClick: (TimetableSlot) -> Unit
 ) {
@@ -434,7 +453,7 @@ private fun PeriodRow(
 
         // 右側課程卡片或空白
         if (slot != null) {
-            val colorStyle = TimetableColors.getColorStyle(slot.courseName, isDark)
+            val colorStyle = remember(slot.courseName, isDark) { TimetableColors.getColorStyle(slot.courseName, isDark) }
             Card(
                 onClick = { onSlotClick(slot) },
                 modifier = Modifier
@@ -476,17 +495,34 @@ private fun PeriodRow(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = slot.classroom,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = colorStyle.secondaryTextColor
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "· ${slot.instructor}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = colorStyle.secondaryTextColor
-                            )
+                            if (slot.classroom.isNotBlank()) {
+                                Text(
+                                    text = slot.classroom,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = colorStyle.secondaryTextColor
+                                )
+                            }
+                            val teacher = slot.instructor.ifBlank {
+                                courses.firstOrNull { c ->
+                                    c.id == slot.courseId || c.name.contains(slot.courseName) || slot.courseName.contains(c.name)
+                                }?.instructor.orEmpty()
+                            }
+                            if (teacher.isNotBlank()) {
+                                if (slot.classroom.isNotBlank()) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "·",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = colorStyle.secondaryTextColor
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                }
+                                Text(
+                                    text = teacher,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = colorStyle.secondaryTextColor
+                                )
+                            }
                         }
                     }
                 }
@@ -527,6 +563,11 @@ private fun WeekTableView(
     val days = listOf(1, 2, 3, 4, 5)
     val dayLabels = listOf("一", "二", "三", "四", "五")
 
+    // O(1) 查找表：避免在 70 個格子中反覆做 O(n) find
+    val slotMap = remember(slots) {
+        slots.associateBy { it.dayOfWeek to it.periodNumber }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         // 表頭
         Row(
@@ -564,7 +605,10 @@ private fun WeekTableView(
                 .weight(1f)
                 .fillMaxWidth()
         ) {
-            items(StandardPeriods.allPeriods) { period ->
+            items(
+                items = StandardPeriods.allPeriods,
+                key = { it.periodNumber }
+            ) { period ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -593,7 +637,7 @@ private fun WeekTableView(
 
                     // 5 天各格
                     days.forEach { dayNum ->
-                        val slot = slots.find { it.dayOfWeek == dayNum && it.periodNumber == period.periodNumber }
+                        val slot = slotMap[dayNum to period.periodNumber]
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -605,7 +649,9 @@ private fun WeekTableView(
                                 .padding(1.dp)
                         ) {
                             if (slot != null) {
-                                val colorStyle = TimetableColors.getColorStyle(slot.courseName, isDark)
+                                val colorStyle = remember(slot.courseName, isDark) {
+                                    TimetableColors.getColorStyle(slot.courseName, isDark)
+                                }
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -638,6 +684,7 @@ private fun WeekTableView(
 @Composable
 private fun CourseDetailDialog(
     slot: TimetableSlot,
+    courses: List<tw.edu.irika.nttueclass.domain.model.Course> = emptyList(),
     isDark: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -670,6 +717,11 @@ private fun CourseDetailDialog(
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
+                val resolvedInstructor = slot.instructor.ifBlank {
+                    courses.firstOrNull { c ->
+                        c.id == slot.courseId || c.name.contains(slot.courseName) || slot.courseName.contains(c.name)
+                    }?.instructor.orEmpty()
+                }.ifBlank { "未指定" }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.Person,
@@ -679,7 +731,7 @@ private fun CourseDetailDialog(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "授課教師：${slot.instructor.ifBlank { "未指定" }}",
+                        text = "授課教師：$resolvedInstructor",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
@@ -735,6 +787,7 @@ private fun CourseDetailDialog(
 @Composable
 private fun AddEditSlotDialog(
     initialSlot: TimetableSlot?,
+    courses: List<tw.edu.irika.nttueclass.domain.model.Course> = emptyList(),
     defaultDayOfWeek: Int,
     onSave: (TimetableSlot) -> Unit,
     onDismiss: () -> Unit
@@ -743,7 +796,15 @@ private fun AddEditSlotDialog(
     var dayOfWeek by remember { mutableIntStateOf(initialSlot?.dayOfWeek ?: defaultDayOfWeek.coerceIn(1, 7)) }
     var periodNumber by remember { mutableIntStateOf(initialSlot?.periodNumber ?: 1) }
     var classroom by remember { mutableStateOf(initialSlot?.classroom.orEmpty()) }
-    var instructor by remember { mutableStateOf(initialSlot?.instructor.orEmpty()) }
+    var instructor by remember {
+        mutableStateOf(
+            initialSlot?.instructor.orEmpty().ifBlank {
+                courses.firstOrNull { c ->
+                    c.id == initialSlot?.courseId || (initialSlot != null && (c.name.contains(initialSlot.courseName) || initialSlot.courseName.contains(c.name)))
+                }?.instructor.orEmpty()
+            }
+        )
+    }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val dayNames = listOf("週一", "週二", "週三", "週四", "週五", "週六", "週日")

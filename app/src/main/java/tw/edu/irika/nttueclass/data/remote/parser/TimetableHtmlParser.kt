@@ -6,6 +6,31 @@ import tw.edu.irika.nttueclass.domain.model.TimetableSlot
 
 object TimetableHtmlParser {
 
+    // 預編譯 Regex 常數：避免在解析迴圈中反覆建立 Regex 物件
+    private val REGEX_DIGIT_PERIOD = Regex("""(?:第|節次)\s*(\d+)|(\d+)\s*節|\b(\d+)\b""")
+    private val REGEX_TEACHER_LABEL = Regex("""(?:老師|教師|教授|授課教師|師)\s*[:：]?\s*([^\s/()（）\[\]]+)""")
+    private val REGEX_ROOM_LABEL = Regex("""(?:教室|地點)\s*[:：]?\s*([^\s/()（）\[\]]+)""")
+    private val REGEX_FULL_TEXT_TEACHER = Regex("""(?:老師|教師|教授|授課教師)\s*[:：]?\s*([^\s/()（）\[\]]+)""")
+    private val REGEX_SEPARATOR = Regex("""[/／,，]""")
+    private val REGEX_SLASH = Regex("""[/／]""")
+    private val REGEX_CLASSROOM_PATTERN = Regex("""[A-Z0-9]{2,}\d+""")
+    private val REGEX_CLEAN_INSTRUCTOR_PREFIX = Regex("""^(?:老師|教師|授課教師|授課老師|指導教授|指導教師)[:：]?\s*""")
+    private val REGEX_CLEAN_BRACKETS = Regex("""[()（）\[\]【】]""")
+    private val REGEX_CLEAN_CLASSROOM_PREFIX = Regex("""^(?:教室|地點)[:：]?\s*""")
+    private val REGEX_HINT_TRAILING = Regex("""^[\s/／,，-]+|[\s/／,，-]+$""")
+
+    private fun buildLetterRegex(letter: String): Regex =
+        Regex("""(?i)(?:第|節次)\s*$letter|$letter\s*節|\b$letter\b""")
+
+    // 預建英文字母節次 Regex（僅建立一次）
+    private val letterRegexes: List<Pair<Regex, Int>> = listOf(
+        buildLetterRegex("A") to 10,
+        buildLetterRegex("B") to 11,
+        buildLetterRegex("C") to 12,
+        buildLetterRegex("D") to 13,
+        buildLetterRegex("E") to 14
+    )
+
     /**
      * 解析臺東大學網路學園 3.0 個人課表 HTML (/dashboard/myTimeTable, /schedule)
      * 支援桌機版與行動版 DOM 結構 (#myTimeTable, table.custom, table.schedule 等)
@@ -81,13 +106,8 @@ object TimetableHtmlParser {
                             else -> "c_${courseName.hashCode()}"
                         }.ifBlank { "c_${courseName.hashCode()}" }
 
-                        // 提取教室資訊 (.fs-hint, .classroom, .room, span.location)
-                        val classroom = cell.selectFirst(".fs-hint, .classroom, .room, span.location")?.text()?.trim()
-                            ?: extractClassroom(cellText)
-
-                        // 提取教師資訊
-                        val instructor = cell.selectFirst(".instructor, .teacher")?.text()?.trim()
-                            ?: extractInstructor(cellText)
+                        // 提取教室與教師資訊
+                        val (classroom, instructor) = extractClassroomAndInstructor(cell, cellText)
 
                         result.add(
                             TimetableSlot(
@@ -137,16 +157,15 @@ object TimetableHtmlParser {
             }
         }
 
-        // 2. 英文字母節次（夜間）：第A節, 節次 A, 節次A, A節, 單獨A (對應 10~14)
-        val letters = listOf("A" to 10, "B" to 11, "C" to 12, "D" to 13, "E" to 14)
-        for ((letter, num) in letters) {
-            if (Regex("""(?i)(?:第|節次)\s*$letter|$letter\s*節|\b$letter\b""").containsMatchIn(text)) {
+        // 2. 英文字母節次（夜間）：使用預編譯 Regex
+        for ((regex, num) in letterRegexes) {
+            if (regex.containsMatchIn(text)) {
                 return num
             }
         }
 
         // 3. 阿拉伯數字節次：第 1 節 ~ 第 14 節, 節次 1 ~ 14, 或單獨數字
-        val digitMatch = Regex("""(?:第|節次)\s*(\d+)|(\d+)\s*節|\b(\d+)\b""").find(text)
+        val digitMatch = REGEX_DIGIT_PERIOD.find(text)
         if (digitMatch != null) {
             val d = (digitMatch.groups[1] ?: digitMatch.groups[2] ?: digitMatch.groups[3])?.value?.toIntOrNull()
             if (d != null && d in 1..14) return d
@@ -162,13 +181,122 @@ object TimetableHtmlParser {
         return null
     }
 
-    private fun extractClassroom(text: String): String {
-        val lines = text.lines().map { it.trim() }.filter { it.isNotBlank() }
-        return if (lines.size > 1) lines[1] else ""
+    private fun extractClassroomAndInstructor(cell: org.jsoup.nodes.Element, cellText: String): Pair<String, String> {
+        var classroom = cell.selectFirst(".classroom, .room, span.location")?.text()?.trim().orEmpty()
+        var instructor = cell.selectFirst(".instructor, .teacher, .prof, [class*='teacher'], [class*='instructor']")?.text()?.trim().orEmpty()
+
+        // 1. 若兩者均已透過明確 class 取得，直接回傳
+        if (classroom.isNotBlank() && instructor.isNotBlank()) {
+            return Pair(classroom.trim(), instructor.trim())
+        }
+
+        // 2. 檢查 .fs-hint 區塊內容 (支援複合字串，如 "理工C303 / 老師: 王大明")
+        val hintElements = cell.select(".fs-hint")
+        for (hint in hintElements) {
+            val hintText = hint.text().trim()
+            if (hintText.isBlank()) continue
+
+            val segments = if (hintText.contains("/") || hintText.contains("／") || hintText.contains("，") || hintText.contains(",")) {
+                hintText.split(REGEX_SEPARATOR).map { it.trim() }
+            } else {
+                listOf(hintText)
+            }
+
+            for (seg in segments) {
+                // 檢查是否包含教師
+                val teacherMatch = REGEX_TEACHER_LABEL.find(seg)
+                if (teacherMatch != null && instructor.isBlank()) {
+                    instructor = teacherMatch.groupValues[1].trim()
+                } else if (isLikelyInstructor(seg) && instructor.isBlank()) {
+                    instructor = cleanInstructor(seg)
+                }
+
+                // 檢查是否包含教室
+                val roomMatch = REGEX_ROOM_LABEL.find(seg)
+                if (roomMatch != null && classroom.isBlank()) {
+                    classroom = roomMatch.groupValues[1].trim()
+                } else if (isLikelyClassroom(seg) && classroom.isBlank()) {
+                    classroom = cleanClassroom(seg)
+                }
+            }
+        }
+
+        // 3. 檢查全文中是否存在明確教師關鍵字 (例如 老師: 王大明 或 教師: 陳小明)
+        if (instructor.isBlank()) {
+            val teacherMatch = REGEX_FULL_TEXT_TEACHER.find(cellText)
+            if (teacherMatch != null) {
+                instructor = teacherMatch.groupValues[1].trim()
+            }
+        }
+
+        // 4. 多行/分段文字分析 (跳過第一行課程名稱)
+        val lines = cellText.lines().map { it.trim() }.filter { it.isNotBlank() }
+        if (lines.size > 1) {
+            for (i in 1 until lines.size) {
+                val line = lines[i]
+                if (line == "-") continue
+
+                // 若此行包含斜線組合，如 "R101教室 / 張教授"
+                if (line.contains("/") || line.contains("／")) {
+                    val parts = line.split(REGEX_SLASH).map { it.trim() }
+                    for (part in parts) {
+                        if (isLikelyClassroom(part) && classroom.isBlank()) {
+                            classroom = cleanClassroom(part)
+                        } else if (isLikelyInstructor(part) && instructor.isBlank()) {
+                            instructor = cleanInstructor(part)
+                        }
+                    }
+                    continue
+                }
+
+                if (isLikelyClassroom(line)) {
+                    if (classroom.isBlank()) classroom = cleanClassroom(line)
+                } else if (isLikelyInstructor(line)) {
+                    if (instructor.isBlank()) instructor = cleanInstructor(line)
+                }
+            }
+        }
+
+        // 5. 若最後 classroom 仍為空，且 .fs-hint 有未被判定為教師的文字，去除教師部分後作為教室
+        if (classroom.isBlank()) {
+            val hintText = cell.selectFirst(".fs-hint")?.text()?.trim().orEmpty()
+            if (hintText.isNotBlank()) {
+                var cleanHint = hintText
+                if (instructor.isNotBlank()) {
+                    cleanHint = cleanHint.replace(Regex("""(?:老師|教師|教授|授課教師|師)?\s*[:：]?\s*""" + Regex.escape(instructor)), "")
+                        .replace(REGEX_HINT_TRAILING, "")
+                        .trim()
+                }
+                if (cleanHint.isNotBlank()) {
+                    classroom = cleanClassroom(cleanHint)
+                }
+            }
+        }
+
+        return Pair(classroom.trim(), instructor.trim())
     }
 
-    private fun extractInstructor(text: String): String {
-        val lines = text.lines().map { it.trim() }.filter { it.isNotBlank() }
-        return if (lines.size > 2) lines[2] else ""
+    private fun isLikelyClassroom(text: String): Boolean {
+        return text.contains("教室") || text.contains("樓") || text.contains("館") ||
+                text.contains("堂") || text.contains("室") || text.contains("Lab", ignoreCase = true) ||
+                REGEX_CLASSROOM_PATTERN.containsMatchIn(text)
+    }
+
+    private fun isLikelyInstructor(text: String): Boolean {
+        val cleaned = cleanInstructor(text)
+        return cleaned.length in 2..8 && !cleaned.any { it.isDigit() } &&
+                !isLikelyClassroom(text) && !cleaned.contains("必修") && !cleaned.contains("選修")
+    }
+
+    private fun cleanInstructor(text: String): String {
+        return text.replace(REGEX_CLEAN_INSTRUCTOR_PREFIX, "")
+            .replace(REGEX_CLEAN_BRACKETS, "")
+            .trim()
+    }
+
+    private fun cleanClassroom(text: String): String {
+        return text.replace(REGEX_CLEAN_CLASSROOM_PREFIX, "")
+            .replace(REGEX_CLEAN_BRACKETS, "")
+            .trim()
     }
 }

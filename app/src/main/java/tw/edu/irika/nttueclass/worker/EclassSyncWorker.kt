@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.flow.firstOrNull
+import tw.edu.irika.nttueclass.data.local.security.SecureCredentialStorage
 import tw.edu.irika.nttueclass.data.repository.EclassRepository
 import tw.edu.irika.nttueclass.domain.model.TaskStatus
 import tw.edu.irika.nttueclass.notification.NotificationHelper
@@ -14,6 +15,12 @@ class EclassSyncWorker(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
+        // 前置判斷：未登入時直接跳過同步，避免不必要的 Repository 初始化與網路開銷
+        val storage = SecureCredentialStorage(applicationContext)
+        if (!storage.isLoggedIn()) {
+            return Result.success()
+        }
+
         val repository = EclassRepository(applicationContext)
 
         // 1. 執行背景資料同步

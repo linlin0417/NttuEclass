@@ -21,8 +21,8 @@ android {
         applicationId = "tw.edu.irika.nttueclass"
         minSdk = 31
         targetSdk = 36
-        versionCode = 10005
-        versionName = "1.0.4"
+        versionCode = 10006
+        versionName = "1.0.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

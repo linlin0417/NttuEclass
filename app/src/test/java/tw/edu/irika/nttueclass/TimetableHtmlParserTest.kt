@@ -147,4 +147,70 @@ class TimetableHtmlParserTest {
         assertEquals("理工C303", slots[0].classroom)
         assertEquals("王大明", slots[0].instructor)
     }
+
+    @Test
+    fun timetableHtmlParser_preservesLanguageClassroomAndInstructor() {
+        val sampleHtml = """
+            <table class="table custom table-hover" id="myTimeTable">
+                <tbody>
+                    <tr>
+                        <td class="col-time">第四節</td>
+                        <td class="col-char4">
+                            <div>
+                                <div class="my-time-table-cell-title"><a href="/course/2001" title="大二英文:基礎級[23,24]">大二英文:基礎級[23,24]</a></div>
+                                <div class="fs-hint text-overflow">H112-2語言教室 A / 劉文雲</div>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        """.trimIndent()
+
+        val slots = TimetableHtmlParser.parse(sampleHtml)
+        assertEquals(1, slots.size)
+        assertEquals("大二英文:基礎級[23,24]", slots[0].courseName)
+        // 絕對不可被錯誤截斷為 "A"
+        assertEquals("H112-2語言教室 A", slots[0].classroom)
+        assertEquals("劉文雲", slots[0].instructor)
+        assertEquals("H112-2", slots[0].classroomCode)
+        assertEquals("H", slots[0].buildingCode)
+    }
+
+    @Test
+    fun timetableHtmlParser_handlesSpacedCompoundAndSEBClassrooms() {
+        val sampleHtml = """
+            <table class="table custom table-hover" id="myTimeTable">
+                <tbody>
+                    <tr>
+                        <td class="col-time">第六節</td>
+                        <td class="col-char4">
+                            <div>
+                                <div class="my-time-table-cell-title"><a href="/course/3001" title="物理化學(一)[26,27,43,44]">物理化學(一)[26,27,43,44]</a></div>
+                                <div class="fs-hint text-overflow">SEB104階梯教室應科系 / 王順發</div>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="col-time">第八節</td>
+                        <td class="col-char4">
+                            <div>
+                                <div class="my-time-table-cell-title"><a href="/course/3002" title="有機化學(一)[28,29,2A]">有機化學(一)[28,29,2A]</a></div>
+                                <div class="fs-hint text-overflow">SEB104階梯教室應科系 · 朱見和</div>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        """.trimIndent()
+
+        val slots = TimetableHtmlParser.parse(sampleHtml)
+        assertEquals(2, slots.size)
+        assertEquals("SEB104階梯教室應科系", slots[0].classroom)
+        assertEquals("王順發", slots[0].instructor)
+        assertEquals("SEB104", slots[0].classroomCode)
+        assertEquals("SEB", slots[0].buildingCode)
+
+        assertEquals("SEB104階梯教室應科系", slots[1].classroom)
+        assertEquals("朱見和", slots[1].instructor)
+    }
 }

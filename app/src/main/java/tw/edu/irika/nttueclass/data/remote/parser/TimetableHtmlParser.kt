@@ -8,16 +8,16 @@ object TimetableHtmlParser {
 
     // 預編譯 Regex 常數：避免在解析迴圈中反覆建立 Regex 物件
     private val REGEX_DIGIT_PERIOD = Regex("""(?:第|節次)\s*(\d+)|(\d+)\s*節|\b(\d+)\b""")
-    private val REGEX_TEACHER_LABEL = Regex("""(?:老師|教師|教授|授課教師|師)\s*[:：]?\s*([^\s/()（）\[\]]+)""")
-    private val REGEX_ROOM_LABEL = Regex("""(?:教室|地點)\s*[:：]?\s*([^\s/()（）\[\]]+)""")
-    private val REGEX_FULL_TEXT_TEACHER = Regex("""(?:老師|教師|教授|授課教師)\s*[:：]?\s*([^\s/()（）\[\]]+)""")
-    private val REGEX_SEPARATOR = Regex("""[/／,，]""")
-    private val REGEX_SLASH = Regex("""[/／]""")
-    private val REGEX_CLASSROOM_PATTERN = Regex("""[A-Z0-9]{2,}\d+""")
-    private val REGEX_CLEAN_INSTRUCTOR_PREFIX = Regex("""^(?:老師|教師|授課教師|授課老師|指導教授|指導教師)[:：]?\s*""")
+    private val REGEX_TEACHER_LABEL = Regex("""^(?:老師|教師|教授|授課教師|授課老師|指導教授|指導老師|講師)\s*[:：]?\s*(.+)|(?:老師|教師|教授|授課教師|授課老師|指導教授|指導老師|講師)\s*[:：]\s*([^,，;；/\r\n]+)""")
+    private val REGEX_ROOM_LABEL = Regex("""^(?:教室|地點|上課教室|上課地點)\s*[:：]?\s*(.+)|(?:教室|地點|上課教室|上課地點)\s*[:：]\s*([^,，;；/\r\n]+)""")
+    private val REGEX_FULL_TEXT_TEACHER = Regex("""(?:老師|教師|教授|授課教師|授課老師|指導教授|講師)\s*[:：]\s*([^\s/()（）\[\]]+)""")
+    private val REGEX_SEPARATOR = Regex("""[/／,，·・]""")
+    private val REGEX_SLASH = Regex("""[/／·・]""")
+    private val REGEX_CLASSROOM_PATTERN = Regex("""(?i)\b[A-Z]{1,4}[-_]?\d{2,4}(?:-[A-Z0-9]+)?\b""")
+    private val REGEX_CLEAN_INSTRUCTOR_PREFIX = Regex("""^(?:老師|教師|授課教師|授課老師|指導教授|指導教師|講師)[:：]?\s*""")
     private val REGEX_CLEAN_BRACKETS = Regex("""[()（）\[\]【】]""")
-    private val REGEX_CLEAN_CLASSROOM_PREFIX = Regex("""^(?:教室|地點)[:：]?\s*""")
-    private val REGEX_HINT_TRAILING = Regex("""^[\s/／,，-]+|[\s/／,，-]+$""")
+    private val REGEX_CLEAN_CLASSROOM_PREFIX = Regex("""^(?:教室|地點|上課教室|上課地點)[:：]?\s*""")
+    private val REGEX_HINT_TRAILING = Regex("""^[\s/／,，·・-]+|[\s/／,，·・-]+$""")
 
     private fun buildLetterRegex(letter: String): Regex =
         Regex("""(?i)(?:第|節次)\s*$letter|$letter\s*節|\b$letter\b""")
@@ -196,7 +196,7 @@ object TimetableHtmlParser {
             val hintText = hint.text().trim()
             if (hintText.isBlank()) continue
 
-            val segments = if (hintText.contains("/") || hintText.contains("／") || hintText.contains("，") || hintText.contains(",")) {
+            val segments = if (REGEX_SEPARATOR.containsMatchIn(hintText)) {
                 hintText.split(REGEX_SEPARATOR).map { it.trim() }
             } else {
                 listOf(hintText)
@@ -206,7 +206,8 @@ object TimetableHtmlParser {
                 // 檢查是否包含教師
                 val teacherMatch = REGEX_TEACHER_LABEL.find(seg)
                 if (teacherMatch != null && instructor.isBlank()) {
-                    instructor = teacherMatch.groupValues[1].trim()
+                    val rawTeacher = (teacherMatch.groups[1] ?: teacherMatch.groups[2])?.value?.trim().orEmpty()
+                    if (rawTeacher.isNotBlank()) instructor = cleanInstructor(rawTeacher)
                 } else if (isLikelyInstructor(seg) && instructor.isBlank()) {
                     instructor = cleanInstructor(seg)
                 }
@@ -214,9 +215,25 @@ object TimetableHtmlParser {
                 // 檢查是否包含教室
                 val roomMatch = REGEX_ROOM_LABEL.find(seg)
                 if (roomMatch != null && classroom.isBlank()) {
-                    classroom = roomMatch.groupValues[1].trim()
+                    val rawRoom = (roomMatch.groups[1] ?: roomMatch.groups[2])?.value?.trim().orEmpty()
+                    if (rawRoom.isNotBlank()) classroom = cleanClassroom(rawRoom)
                 } else if (isLikelyClassroom(seg) && classroom.isBlank()) {
                     classroom = cleanClassroom(seg)
+                }
+
+                // 容錯：若仍缺少教室或教師，且該 seg 含有空格分隔複合資訊 (如 "H112-2語言教室 A 劉文雲")
+                if (classroom.isBlank() || instructor.isBlank()) {
+                    val spaceTokens = seg.split(Regex("""\s+""")).filter { it.isNotBlank() }
+                    if (spaceTokens.size >= 2) {
+                        val lastToken = spaceTokens.last()
+                        if (isLikelyInstructor(lastToken) && instructor.isBlank()) {
+                            val remaining = spaceTokens.dropLast(1).joinToString(" ")
+                            if (isLikelyClassroom(remaining) && classroom.isBlank()) {
+                                classroom = cleanClassroom(remaining)
+                                instructor = cleanInstructor(lastToken)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -236,8 +253,8 @@ object TimetableHtmlParser {
                 val line = lines[i]
                 if (line == "-") continue
 
-                // 若此行包含斜線組合，如 "R101教室 / 張教授"
-                if (line.contains("/") || line.contains("／")) {
+                // 若此行包含斜線或分隔組合，如 "R101教室 / 張教授"
+                if (REGEX_SLASH.containsMatchIn(line)) {
                     val parts = line.split(REGEX_SLASH).map { it.trim() }
                     for (part in parts) {
                         if (isLikelyClassroom(part) && classroom.isBlank()) {

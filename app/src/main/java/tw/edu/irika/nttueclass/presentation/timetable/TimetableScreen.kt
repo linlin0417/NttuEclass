@@ -3,6 +3,7 @@ package tw.edu.irika.nttueclass.presentation.timetable
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import tw.edu.irika.nttueclass.domain.util.ClassroomHelper
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -704,18 +705,33 @@ private fun CourseDetailDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.Top) {
                     Icon(
                         imageVector = Icons.Default.LocationOn,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(20.dp).padding(top = 2.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "上課教室：${slot.classroom.ifBlank { "未指定" }}",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                    Column {
+                        Text(
+                            text = "上課教室：${slot.classroom.ifBlank { "未指定" }}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        if (slot.classroomCode.isNotBlank() && slot.classroomCode != slot.classroom) {
+                            val buildingName = ClassroomHelper.getBuildingName(slot.classroomCode)
+                            val codeDesc = if (buildingName.isNotBlank()) {
+                                "教室代碼：${slot.classroomCode} · $buildingName"
+                            } else {
+                                "教室代碼：${slot.classroomCode}"
+                            }
+                            Text(
+                                text = codeDesc,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
                 val resolvedInstructor = slot.instructor.ifBlank {
                     courses.firstOrNull { c ->

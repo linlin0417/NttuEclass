@@ -155,10 +155,16 @@ class EclassRepository(context: Context) {
                             val match = existingCourses.firstOrNull { c ->
                                 isCourseMatch(c.id, c.name, slot.courseId, slot.courseName)
                             }
-                            if (match != null && match.instructor.isNotBlank()) {
+                            if (match != null) {
+                                val resolvedInstructor = slot.instructor.ifBlank { match.instructor }
+                                val resolvedClassroom = if (slot.classroom.isBlank() || (slot.classroom.length <= 1 && match.classroom.length > 1)) {
+                                    match.classroom
+                                } else {
+                                    slot.classroom
+                                }
                                 slot.copy(
-                                    instructor = match.instructor,
-                                    classroom = slot.classroom.ifBlank { match.classroom }
+                                    instructor = resolvedInstructor,
+                                    classroom = resolvedClassroom
                                 )
                             } else slot
                         } else slot
@@ -272,11 +278,15 @@ class EclassRepository(context: Context) {
         // 1. 若課表節次缺少教師，由已解析的課程對應補齊
         val modifiedSlots = mutableListOf<TimetableSlotEntity>()
         val enrichedSlots = slots.map { slot ->
-            if (slot.instructor.isBlank() || slot.classroom.isBlank()) {
+            if (slot.instructor.isBlank() || slot.classroom.isBlank() || slot.classroom.length <= 1) {
                 val match = findCourseMatch(slot.courseId, slot.courseName)
                 if (match != null) {
                     val newInstructor = slot.instructor.ifBlank { match.instructor }
-                    val newClassroom = slot.classroom.ifBlank { match.classroom }
+                    val newClassroom = if (slot.classroom.isBlank() || (slot.classroom.length <= 1 && match.classroom.length > 1)) {
+                        match.classroom
+                    } else {
+                        slot.classroom
+                    }
                     if (newInstructor != slot.instructor || newClassroom != slot.classroom) {
                         val updated = slot.copy(instructor = newInstructor, classroom = newClassroom)
                         modifiedSlots.add(updated)
@@ -314,11 +324,15 @@ class EclassRepository(context: Context) {
         // 2. 若課程清單缺少教師或教室，由課表插槽補齊
         val modifiedCourses = mutableListOf<CourseEntity>()
         courses.forEach { course ->
-            if (course.instructor.isBlank() || course.classroom.isBlank()) {
+            if (course.instructor.isBlank() || course.classroom.isBlank() || course.classroom.length <= 1) {
                 val match = findSlotMatch(course.id, course.name)
                 if (match != null) {
                     val newInstructor = course.instructor.ifBlank { match.instructor }
-                    val newClassroom = course.classroom.ifBlank { match.classroom }
+                    val newClassroom = if (course.classroom.isBlank() || (course.classroom.length <= 1 && match.classroom.length > 1)) {
+                        match.classroom
+                    } else {
+                        course.classroom
+                    }
                     if (newInstructor != course.instructor || newClassroom != course.classroom) {
                         modifiedCourses.add(course.copy(instructor = newInstructor, classroom = newClassroom))
                     }

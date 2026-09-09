@@ -2,6 +2,7 @@ package tw.edu.irika.nttueclass.presentation.course
 
 import android.content.Intent
 import android.net.Uri
+import tw.edu.irika.nttueclass.domain.util.ClassroomHelper
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -675,10 +676,21 @@ private fun CourseDetailDialog(
                         }
                     }
                     if (course.classroom.isNotBlank()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        Row(verticalAlignment = Alignment.Top) {
+                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp).padding(top = 2.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("上課教室：${course.classroom}", style = MaterialTheme.typography.bodyMedium)
+                            Column {
+                                Text("上課教室：${course.classroom}", style = MaterialTheme.typography.bodyMedium)
+                                if (course.classroomCode.isNotBlank() && course.classroomCode != course.classroom) {
+                                    val buildingName = ClassroomHelper.getBuildingName(course.classroomCode)
+                                    val codeDesc = if (buildingName.isNotBlank()) {
+                                        "教室代碼：${course.classroomCode} · $buildingName"
+                                    } else {
+                                        "教室代碼：${course.classroomCode}"
+                                    }
+                                    Text(codeDesc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
                         }
                     }
                 }

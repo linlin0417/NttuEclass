@@ -1,5 +1,7 @@
 package tw.edu.irika.nttueclass.domain.model
 
+import tw.edu.irika.nttueclass.domain.util.ClassroomHelper
+
 enum class PeriodCategory {
     MORNING,
     NOON,
@@ -19,6 +21,7 @@ data class Period(
     val timeRange: String get() = "$startTime ~ $endTime"
 }
 
+
 data class TimetableSlot(
     val dayOfWeek: Int, // 1: 週一, 2: 週二, ..., 5: 週五, 6: 週六, 7: 週日
     val periodNumber: Int, // 1 ~ 14
@@ -26,7 +29,10 @@ data class TimetableSlot(
     val courseName: String,
     val classroom: String,
     val instructor: String
-)
+) {
+    val classroomCode: String get() = ClassroomHelper.extractClassroomCode(classroom)
+    val buildingCode: String get() = ClassroomHelper.extractBuildingCode(classroom)
+}
 
 object StandardPeriods {
     val allPeriods: List<Period> = listOf(

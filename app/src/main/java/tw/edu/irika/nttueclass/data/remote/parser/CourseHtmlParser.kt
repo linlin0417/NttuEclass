@@ -45,22 +45,22 @@ object CourseHtmlParser {
                         val text = hint.text().trim()
                         if (text.isBlank()) continue
 
-                        val teacherMatch = Regex("""(?:老師|教師|授課教師|授課老師)\s*[:：]\s*([^\s,，;；/]+)""").find(text)
+                        val teacherMatch = Regex("""(?:老師|教師|授課教師|授課老師|指導教授|指導老師|講師|教授)\s*[:：]\s*([^,，;；/\r\n]+)""").find(text)
                         if (teacherMatch != null && instructor.isBlank()) {
                             instructor = teacherMatch.groupValues[1].trim()
                         }
 
-                        val codeMatch = Regex("""(?:代碼|課號)\s*[:：]\s*([^\s,，;；/]+)""").find(text)
+                        val codeMatch = Regex("""(?:代碼|課號)\s*[:：]\s*([^\s,，;；/\r\n]+)""").find(text)
                         if (codeMatch != null && code.isBlank()) {
                             code = codeMatch.groupValues[1].trim()
                         }
 
-                        val roomMatch = Regex("""(?:教室|地點)\s*[:：]\s*([^\s,，;；/]+)""").find(text)
+                        val roomMatch = Regex("""(?:教室|地點|上課教室|上課地點)\s*[:：]\s*([^,，;；/\r\n]+)""").find(text)
                         if (roomMatch != null && classroom.isBlank()) {
                             classroom = roomMatch.groupValues[1].trim()
                         }
 
-                        val semMatch = Regex("""(?:期間|學期)\s*[:：]\s*([^\s,，;；/]+)""").find(text)
+                        val semMatch = Regex("""(?:期間|學期)\s*[:：]\s*([^,，;；/\r\n]+)""").find(text)
                         if (semMatch != null) {
                             val s = semMatch.groupValues[1].trim()
                             if (s.isNotBlank()) semester = s
@@ -70,7 +70,7 @@ object CourseHtmlParser {
                     // 若尚未取得教師，利用正規式搜尋卡片全部文字
                     if (instructor.isBlank()) {
                         val allText = item.text()
-                        val teacherMatch = Regex("""(?:老師|教師|授課教師|授課老師|講師|教授|Instructor|Teacher)\s*[:：]\s*([^\s,，;；/]+)""").find(allText)
+                        val teacherMatch = Regex("""(?:老師|教師|授課教師|授課老師|講師|教授|Instructor|Teacher)\s*[:：]\s*([^,，;；/\r\n]+)""").find(allText)
                         if (teacherMatch != null) {
                             instructor = teacherMatch.groupValues[1].trim()
                         } else {
@@ -115,7 +115,7 @@ object CourseHtmlParser {
                     val rowText = row.text()
                     var instructor = row.selectFirst(".teacher, .instructor")?.text()?.trim().orEmpty()
                     if (instructor.isBlank()) {
-                        val teacherMatch = Regex("""(?:老師|教師|授課教師|授課老師|講師|教授)\s*[:：]\s*([^\s,，;；/]+)""").find(rowText)
+                        val teacherMatch = Regex("""(?:老師|教師|授課教師|授課老師|講師|教授)\s*[:：]\s*([^,，;；/\r\n]+)""").find(rowText)
                         if (teacherMatch != null) {
                             instructor = teacherMatch.groupValues[1].trim()
                         } else {

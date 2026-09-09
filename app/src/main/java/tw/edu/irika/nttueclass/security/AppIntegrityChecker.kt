@@ -3,7 +3,6 @@ package tw.edu.irika.nttueclass.security
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
-import android.os.Build
 import com.google.android.play.core.integrity.IntegrityManagerFactory
 import com.google.android.play.core.integrity.StandardIntegrityManager
 import kotlinx.coroutines.Dispatchers
@@ -64,46 +63,28 @@ object AppIntegrityChecker {
     }
 
     /**
-     * 獲取安裝來源套件名稱
+     * 獲取安裝來源套件名稱 (minSdk 33 保證 getInstallSourceInfo 可用)
      */
     fun getInstallerPackageName(context: Context): String {
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val sourceInfo = context.packageManager.getInstallSourceInfo(context.packageName)
-                sourceInfo.installingPackageName ?: sourceInfo.initiatingPackageName ?: "unknown"
-            } else {
-                @Suppress("DEPRECATION")
-                context.packageManager.getInstallerPackageName(context.packageName) ?: "unknown"
-            }
+            val sourceInfo = context.packageManager.getInstallSourceInfo(context.packageName)
+            sourceInfo.installingPackageName ?: sourceInfo.initiatingPackageName ?: "unknown"
         } catch (_: Exception) {
             "unknown"
         }
     }
 
     /**
-     * 獲取 App 簽署金鑰之 SHA-256 指紋
+     * 獲取 App 簽署金鑰之 SHA-256 指紋 (minSdk 33 保證 GET_SIGNING_CERTIFICATES 可用)
      */
     fun getSignatureSha256(context: Context): String {
         return try {
-            val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                context.packageManager.getPackageInfo(
-                    context.packageName,
-                    PackageManager.GET_SIGNING_CERTIFICATES
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                context.packageManager.getPackageInfo(
-                    context.packageName,
-                    PackageManager.GET_SIGNATURES
-                )
-            }
+            val packageInfo = context.packageManager.getPackageInfo(
+                context.packageName,
+                PackageManager.GET_SIGNING_CERTIFICATES
+            )
 
-            val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                packageInfo.signingInfo?.apkContentsSigners
-            } else {
-                @Suppress("DEPRECATION")
-                packageInfo.signatures
-            }
+            val signatures = packageInfo.signingInfo?.apkContentsSigners
 
             val certBytes = signatures?.firstOrNull()?.toByteArray() ?: return "NO_SIGNATURE"
             val md = MessageDigest.getInstance("SHA-256")

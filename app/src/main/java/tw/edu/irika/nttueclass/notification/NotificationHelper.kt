@@ -5,7 +5,6 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import tw.edu.irika.nttueclass.MainActivity
@@ -21,45 +20,43 @@ object NotificationHelper {
      * 初始化 Android 8.0+ 規範的三大獨立通知渠道
      */
     fun createNotificationChannels(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val notificationManager = context.getSystemService(NotificationManager::class.java) ?: return
+        val notificationManager = context.getSystemService(NotificationManager::class.java) ?: return
 
-            // 1. 課前提醒渠道 (HIGH 重要度，上課前 15 分鐘)
-            val classChannel = NotificationChannel(
-                CHANNEL_CLASS_REMINDER,
-                "課前提醒通知",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "在上課前 15 分鐘提醒即將到來的課程名稱、教室與授課教師"
-                enableVibration(true)
-                enableLights(true)
-            }
-
-            // 2. 作業與測驗截止預警渠道 (HIGH 重要度，截止前 24 小時與 3 小時)
-            val taskChannel = NotificationChannel(
-                CHANNEL_TASK_ALERT,
-                "作業與測驗截止預警",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "在作業或測驗即將截止前發布催繳倒數通知"
-                enableVibration(true)
-                enableLights(true)
-            }
-
-            // 3. 課程公告更新通知 (DEFAULT 重要度，背景靜音或低音)
-            val announcementChannel = NotificationChannel(
-                CHANNEL_ANNOUNCEMENT,
-                "課程公告更新通知",
-                NotificationManager.IMPORTANCE_DEFAULT
-            ).apply {
-                description = "背景智慧同步發現新公告時發布提示"
-                enableVibration(false)
-            }
-
-            notificationManager.createNotificationChannels(
-                listOf(classChannel, taskChannel, announcementChannel)
-            )
+        // 1. 課前提醒渠道 (HIGH 重要度，上課前 15 分鐘)
+        val classChannel = NotificationChannel(
+            CHANNEL_CLASS_REMINDER,
+            "課前提醒通知",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "在上課前 15 分鐘提醒即將到來的課程名稱、教室與授課教師"
+            enableVibration(true)
+            enableLights(true)
         }
+
+        // 2. 作業與測驗截止預警渠道 (HIGH 重要度，截止前 24 小時與 3 小時)
+        val taskChannel = NotificationChannel(
+            CHANNEL_TASK_ALERT,
+            "作業與測驗截止預警",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "在作業或測驗即將截止前發布催繳倒數通知"
+            enableVibration(true)
+            enableLights(true)
+        }
+
+        // 3. 課程公告更新通知 (DEFAULT 重要度，背景靜音或低音)
+        val announcementChannel = NotificationChannel(
+            CHANNEL_ANNOUNCEMENT,
+            "課程公告更新通知",
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply {
+            description = "背景智慧同步發現新公告時發布提示"
+            enableVibration(false)
+        }
+
+        notificationManager.createNotificationChannels(
+            listOf(classChannel, taskChannel, announcementChannel)
+        )
     }
 
     /**

@@ -248,13 +248,32 @@ class EclassRepository(context: Context) {
         val slots = database.timetableDao().getAllSlotsList()
         if (courses.isEmpty() && slots.isEmpty()) return
 
+        // 建立 HashMap 索引，將 O(n²) 降為 O(n)
+        val courseById = courses.filter { it.id.isNotBlank() && !it.id.startsWith("c_") }
+            .associateBy { it.id }
+        val courseByNormalizedName = courses.associateBy { normalizeName(it.name) }
+
+        fun findCourseMatch(targetId: String, targetName: String): CourseEntity? {
+            if (targetId.isNotBlank() && !targetId.startsWith("c_")) {
+                courseById[targetId]?.let { return it }
+            }
+            val normalizedTarget = normalizeName(targetName)
+            if (normalizedTarget.isNotBlank()) {
+                courseByNormalizedName[normalizedTarget]?.let { return it }
+                // 含子字串比對 (fallback)
+                return courses.firstOrNull {
+                    val n = normalizeName(it.name)
+                    n.isNotBlank() && (n.contains(normalizedTarget) || normalizedTarget.contains(n))
+                }
+            }
+            return null
+        }
+
         // 1. 若課表節次缺少教師，由已解析的課程對應補齊
         val modifiedSlots = mutableListOf<TimetableSlotEntity>()
         val enrichedSlots = slots.map { slot ->
             if (slot.instructor.isBlank() || slot.classroom.isBlank()) {
-                val match = courses.firstOrNull { c ->
-                    isCourseMatch(c.id, c.name, slot.courseId, slot.courseName)
-                }
+                val match = findCourseMatch(slot.courseId, slot.courseName)
                 if (match != null) {
                     val newInstructor = slot.instructor.ifBlank { match.instructor }
                     val newClassroom = slot.classroom.ifBlank { match.classroom }
@@ -272,14 +291,31 @@ class EclassRepository(context: Context) {
             database.timetableDao().insertAll(modifiedSlots)
         }
 
+        // 建立已補齊 slots 的索引
+        val slotById = enrichedSlots.filter { it.courseId.isNotBlank() && !it.courseId.startsWith("c_") }
+            .associateBy { it.courseId }
+        val slotByNormalizedName = enrichedSlots.associateBy { normalizeName(it.courseName) }
+
+        fun findSlotMatch(targetId: String, targetName: String): TimetableSlotEntity? {
+            if (targetId.isNotBlank() && !targetId.startsWith("c_")) {
+                slotById[targetId]?.let { return it }
+            }
+            val normalizedTarget = normalizeName(targetName)
+            if (normalizedTarget.isNotBlank()) {
+                slotByNormalizedName[normalizedTarget]?.let { return it }
+                return enrichedSlots.firstOrNull {
+                    val n = normalizeName(it.courseName)
+                    n.isNotBlank() && (n.contains(normalizedTarget) || normalizedTarget.contains(n))
+                }
+            }
+            return null
+        }
+
         // 2. 若課程清單缺少教師或教室，由課表插槽補齊
         val modifiedCourses = mutableListOf<CourseEntity>()
-        enrichedSlots // 使用已補齊的 slots 做比對
         courses.forEach { course ->
             if (course.instructor.isBlank() || course.classroom.isBlank()) {
-                val match = enrichedSlots.firstOrNull { s ->
-                    isCourseMatch(course.id, course.name, s.courseId, s.courseName)
-                }
+                val match = findSlotMatch(course.id, course.name)
                 if (match != null) {
                     val newInstructor = course.instructor.ifBlank { match.instructor }
                     val newClassroom = course.classroom.ifBlank { match.classroom }
@@ -471,17 +507,30 @@ class EclassRepository(context: Context) {
         val announcements = database.announcementDao().getAllAnnouncementsList()
         val tasks = database.taskDao().getAllTasksList()
 
+        // 預建索引：依 courseId 分組公告與作業
+        val announcementsByCourseId = announcements.groupBy { it.courseId }
+        val tasksByCourseId = tasks.groupBy { it.courseId }
+
         val updatedCourses = courses.map { course ->
-            val unreadCount = announcements.count { announcement ->
-                announcement.isUnread && (announcement.courseName.contains(course.name) ||
-                        course.name.contains(announcement.courseName) ||
-                        announcement.courseId == course.id)
-            }
-            val pendingCount = tasks.count { task ->
-                !task.isSubmitted && (task.courseName.contains(course.name) ||
-                        course.name.contains(task.courseName) ||
-                        task.courseId == course.id)
-            }
+            // 快速路徑：先用 courseId 精確比對
+            val idMatchedAnnouncements = announcementsByCourseId[course.id] ?: emptyList()
+            val idMatchedTasks = tasksByCourseId[course.id] ?: emptyList()
+
+            // 補充路徑：名稱子字串比對 (僅對未被 courseId 比對到的資料)
+            val unreadCount = idMatchedAnnouncements.count { it.isUnread } +
+                announcements.count { announcement ->
+                    announcement.courseId != course.id &&
+                    announcement.isUnread &&
+                    (announcement.courseName.contains(course.name) ||
+                     course.name.contains(announcement.courseName))
+                }
+            val pendingCount = idMatchedTasks.count { !it.isSubmitted } +
+                tasks.count { task ->
+                    task.courseId != course.id &&
+                    !task.isSubmitted &&
+                    (task.courseName.contains(course.name) ||
+                     course.name.contains(task.courseName))
+                }
             course.copy(
                 unreadAnnouncementsCount = unreadCount,
                 pendingTasksCount = pendingCount

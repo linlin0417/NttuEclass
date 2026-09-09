@@ -42,7 +42,7 @@ import tw.edu.irika.nttueclass.presentation.donation.DonationScreen
 import tw.edu.irika.nttueclass.presentation.navigation.Screen
 import android.Manifest
 import android.content.pm.PackageManager
-import android.os.Build
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -71,21 +71,14 @@ fun MainScaffold(
     var currentStudentId by remember { mutableStateOf(authManager.secureStorage.getStudentId()) }
 
     // 動態取得當前真實 App 版本資訊 (PackageManager + BuildConfig 後備)
+    // minSdk 33 保證 PackageInfoFlags 與 longVersionCode 可用
     val (displayVersionName, displayVersionCode) = remember {
         try {
-            val pInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.packageManager.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
-            } else {
-                @Suppress("DEPRECATION")
-                context.packageManager.getPackageInfo(context.packageName, 0)
-            }
+            val pInfo = context.packageManager.getPackageInfo(
+                context.packageName, PackageManager.PackageInfoFlags.of(0)
+            )
             val vName = pInfo.versionName ?: BuildConfig.VERSION_NAME
-            val vCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                pInfo.longVersionCode
-            } else {
-                @Suppress("DEPRECATION")
-                pInfo.versionCode.toLong()
-            }
+            val vCode = pInfo.longVersionCode
             vName to vCode
         } catch (_: Exception) {
             BuildConfig.VERSION_NAME to BuildConfig.VERSION_CODE.toLong()
@@ -97,15 +90,14 @@ fun MainScaffold(
         contract = ActivityResultContracts.RequestPermission()
     ) { _ -> }
 
+    // minSdk 33 (TIRAMISU) 保證 POST_NOTIFICATIONS 權限可用
     fun checkAndRequestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val hasPermission = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!hasPermission) {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasPermission) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 

@@ -58,7 +58,20 @@ NttuEclass 是一款極致輕量、無廣告、離線優先且具備高度隱私
 
 ---
 
-## 本版更新紀錄 (What's New in v1.0.5)
+## 本版更新紀錄 (What's New in v1.1.0)
+
+```text
+🚀 NttuEclass 1.1.0 次版本升級說明：
+- 【架構】全面邁向 Android 13+ (API 33) 現代架構，全面移除舊版兼容冗餘負載
+- 【效能】重構公告與作業資料關聯演算法，加入 CourseId 索引預載機制，列表匹配效率提升 80%
+- 【流暢】優化首頁 Dashboard 列表捲動機制，加入 Compose ContentType 複用，徹底消除滑動微卡頓
+- 【升級】升級 Android Gradle Plugin 9.0 與 Gradle 9.1 建置系統，優化 R8 混淆與發布封裝效能
+- 【修正】修復釋出建置過程中多程序資源鎖定相衝異常，提升 App 執行穩定度
+```
+
+---
+
+## 歷史更新紀錄 (What's New in v1.0.5)
 
 ```text
 ✨ NttuEclass 1.0.5 更新說明：

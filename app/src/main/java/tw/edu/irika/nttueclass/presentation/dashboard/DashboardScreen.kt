@@ -125,10 +125,10 @@ fun DashboardScreen(
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item(key = "top_spacer") { Spacer(modifier = Modifier.height(4.dp)) }
+        item(key = "top_spacer", contentType = "spacer") { Spacer(modifier = Modifier.height(4.dp)) }
 
         // 1. 歡迎與學期真實資訊
-        item(key = "header") {
+        item(key = "header", contentType = "header") {
             HeaderSection(
                 greeting = if (isLoggedIn && !currentStudentId.isNullOrBlank()) "${currentStudentId} 同學，你好！" else "同學，你好！",
                 subtitle = dateSubtitle
@@ -136,7 +136,7 @@ fun DashboardScreen(
         }
 
         // 2. 下一堂課指引卡片 (動態計算真實課堂)
-        item(key = "next_class") {
+        item(key = "next_class", contentType = "card") {
             NextClassCard(
                 slot = nextSlot,
                 courses = courses,
@@ -147,12 +147,12 @@ fun DashboardScreen(
         }
 
         // 3. NttuEPass 校園通行快捷卡
-        item(key = "pass_banner") {
+        item(key = "pass_banner", contentType = "banner") {
             NttuPassBanner(onOpenPass = onOpenPass)
         }
 
         // 4. 即將截止作業/測驗預警 (真實待辦)
-        item(key = "urgent_tasks") {
+        item(key = "urgent_tasks", contentType = "card") {
             UrgentTasksCard(
                 urgentTask = urgentTask,
                 hasTasks = tasks.isNotEmpty(),
@@ -161,14 +161,14 @@ fun DashboardScreen(
         }
 
         // 5. 最新課程公告 (真實公告)
-        item(key = "latest_notices") {
+        item(key = "latest_notices", contentType = "card") {
             LatestNoticesCard(
                 notices = latestNotices,
                 onClick = onNavigateToCourses
             )
         }
 
-        item(key = "bottom_spacer") { Spacer(modifier = Modifier.height(16.dp)) }
+        item(key = "bottom_spacer", contentType = "spacer") { Spacer(modifier = Modifier.height(16.dp)) }
     }
 }
 

@@ -300,3 +300,4 @@ object TimetableHtmlParser {
             .trim()
     }
 }
+

@@ -21,8 +21,8 @@ android {
         applicationId = "tw.edu.irika.nttueclass"
         minSdk = 31
         targetSdk = 36
-        versionCode = 10004
-        versionName = "1.0.3"
+        versionCode = 10005
+        versionName = "1.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -82,6 +82,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

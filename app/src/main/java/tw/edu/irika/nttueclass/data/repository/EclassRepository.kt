@@ -9,12 +9,14 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+import java.io.IOException
 import tw.edu.irika.nttueclass.data.local.db.AppDatabase
 import tw.edu.irika.nttueclass.data.local.db.entity.AnnouncementEntity
 import tw.edu.irika.nttueclass.data.local.db.entity.CourseEntity
 import tw.edu.irika.nttueclass.data.local.db.entity.TaskEntity
 import tw.edu.irika.nttueclass.data.local.db.entity.TimetableSlotEntity
 import tw.edu.irika.nttueclass.data.local.security.SecureCredentialStorage
+import tw.edu.irika.nttueclass.data.remote.auth.AuthManager
 import tw.edu.irika.nttueclass.data.remote.client.NttuHttpClient
 import tw.edu.irika.nttueclass.data.remote.parser.AnnouncementHtmlParser
 import tw.edu.irika.nttueclass.data.remote.parser.CourseHtmlParser
@@ -28,10 +30,13 @@ import tw.edu.irika.nttueclass.domain.model.TaskStatus
 import tw.edu.irika.nttueclass.domain.model.TaskType
 import tw.edu.irika.nttueclass.domain.model.TimetableSlot
 
+class SessionExpiredException(message: String) : Exception(message)
+
 class EclassRepository(context: Context) {
     private val database = AppDatabase.getInstance(context)
     private val client = NttuHttpClient.client
-    private val storage = SecureCredentialStorage(context)
+    val storage = SecureCredentialStorage(context)
+    private val authManager = AuthManager(context)
 
     // ==========================================
     // 離線優先資料流 (Offline-First Flows)
@@ -66,25 +71,72 @@ class EclassRepository(context: Context) {
     // ==========================================
     suspend fun syncAllData(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            // 先同步課程列表，取得完整授課教師資料，再同步課表以利對照補齊
-            syncCourses()
-            syncTimetable()
-            // crossEnrichCoursesAndTimetable 已在 syncCourses 內呼叫，此處不再重複
-            // 公告與作業彼此無依賴關係，改為並行執行以縮短同步時間
-            coroutineScope {
+            // 1. 先同步課表（取得最詳盡之節次、教室與授課教師資料）
+            val timetableSuccess = syncTimetable()
+            // 2. 再同步課程列表（由最新課表資料互補缺少的選修課與授課教師）
+            val coursesSuccess = syncCourses()
+            // 3. 雙向互補：課表與課程資料庫中的授課教師與教室資訊進行最終校準補齊
+            crossEnrichCoursesAndTimetable()
+
+            // 4. 並行同步公告與作業
+            val (announcementsSuccess, tasksSuccess) = coroutineScope {
                 val announcementsJob = async { syncAnnouncements() }
                 val tasksJob = async { syncTasks() }
-                announcementsJob.await()
-                tasksJob.await()
+                Pair(announcementsJob.await(), tasksJob.await())
             }
             updateCourseCounters()
+
+            // 5. 真實成功檢核：若全部模組均未獲取到任何有效伺服器資料，判定為同步未達成
+            if (!timetableSuccess && !coursesSuccess && !announcementsSuccess && !tasksSuccess) {
+                throw IOException("無法從學校伺服器取得最新資料，請檢查網路連線")
+            }
+
+            storage.saveLastSyncTimestamp(System.currentTimeMillis())
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    private suspend fun syncTimetable() {
+    private suspend fun fetchHtmlWithAuth(url: String): String {
+        // 1. 若尚未有有效 Session，且已儲存帳密，先嘗試靜默登入獲取 Cookie
+        if (!NttuHttpClient.cookieJar.hasValidSession() && storage.isLoggedIn()) {
+            authManager.silentRefreshSession()
+        }
+
+        // 2. 執行 GET 請求
+        val req = Request.Builder().url(url).build()
+        val resp = client.newCall(req).execute()
+        val requestUrl = resp.request.url.toString()
+        val html = resp.use { r ->
+            if (r.isSuccessful) r.body?.string().orEmpty() else ""
+        }
+
+        // 3. 檢測是否被重導向至登入頁或回傳登入 HTML (Session 逾期或無效)
+        val isLoginRedirect = requestUrl.contains("/index/login") || isLoginPageHtml(html)
+        if (isLoginRedirect) {
+            // 嘗試靜默重新整理 Session
+            if (storage.isLoggedIn()) {
+                val reloginSuccess = authManager.silentRefreshSession()
+                if (reloginSuccess) {
+                    // 重試原請求
+                    val retryReq = Request.Builder().url(url).build()
+                    val retryResp = client.newCall(retryReq).execute()
+                    val retryHtml = retryResp.use { r ->
+                        if (r.isSuccessful) r.body?.string().orEmpty() else ""
+                    }
+                    if (!isLoginPageHtml(retryHtml) && !retryResp.request.url.toString().contains("/index/login")) {
+                        return retryHtml
+                    }
+                }
+            }
+            throw SessionExpiredException("學校學園系統登入已逾期，請重新登入")
+        }
+
+        return html
+    }
+
+    private suspend fun syncTimetable(): Boolean {
         val urls = listOf(
             "${NttuHttpClient.BASE_URL}/dashboard/myTimeTable",
             "${NttuHttpClient.BASE_URL}/schedule",
@@ -92,11 +144,7 @@ class EclassRepository(context: Context) {
         )
         for (url in urls) {
             try {
-                val request = Request.Builder().url(url).build()
-                val response = client.newCall(request).execute()
-                val html = response.use { resp ->
-                    if (resp.isSuccessful) resp.body?.string().orEmpty() else ""
-                }
+                val html = fetchHtmlWithAuth(url)
                 if (html.isBlank()) continue
                 val slots = TimetableHtmlParser.parse(html)
                 if (slots.isNotEmpty()) {
@@ -118,15 +166,18 @@ class EclassRepository(context: Context) {
 
                     database.timetableDao().deleteAll()
                     database.timetableDao().insertAll(enrichedSlots.map { TimetableSlotEntity.fromDomain(it) })
-                    break
+                    return true
                 }
+            } catch (e: SessionExpiredException) {
+                throw e
             } catch (_: Exception) {
                 // 防禦性容錯，嘗試下一個可能路徑
             }
         }
+        return false
     }
 
-    private suspend fun syncCourses() {
+    private suspend fun syncCourses(): Boolean {
         val urls = listOf(
             "${NttuHttpClient.BASE_URL}/dashboard",
             "${NttuHttpClient.BASE_URL}/course",
@@ -135,17 +186,15 @@ class EclassRepository(context: Context) {
         var parsedCourses: List<Course> = emptyList()
         for (url in urls) {
             try {
-                val request = Request.Builder().url(url).build()
-                val response = client.newCall(request).execute()
-                val html = response.use { resp ->
-                    if (resp.isSuccessful) resp.body?.string().orEmpty() else ""
-                }
+                val html = fetchHtmlWithAuth(url)
                 if (html.isBlank()) continue
                 val list = CourseHtmlParser.parse(html)
                 if (list.isNotEmpty()) {
                     parsedCourses = list
                     break
                 }
+            } catch (e: SessionExpiredException) {
+                throw e
             } catch (_: Exception) {
             }
         }
@@ -185,9 +234,9 @@ class EclassRepository(context: Context) {
         if (mergedCourses.isNotEmpty()) {
             database.courseDao().deleteAll()
             database.courseDao().insertAll(mergedCourses.map { CourseEntity.fromDomain(it) })
-            // 同步補齊現有課表插槽之教師
-            crossEnrichCoursesAndTimetable()
+            return true
         }
+        return false
     }
 
     /**
@@ -264,6 +313,15 @@ class EclassRepository(context: Context) {
         // 預編譯 Regex 常數：避免在 O(n²) 迴圈中反覆建立 Regex 物件
         private val REGEX_BRACKETS = Regex("""\([^\)]*\)|\[[^\]]*\]|（[^）]*）|【[^】]*】""")
         private val REGEX_SPECIAL_CHARS = Regex("""[*＊\s\-_]""")
+
+        fun isLoginPageHtml(html: String): Boolean {
+            if (html.isBlank()) return false
+            return html.contains("id=\"login_form\"") ||
+                    html.contains("name=\"anticsrf\"") ||
+                    html.contains("action=\"/index/login\"") ||
+                    html.contains("secimg.php") ||
+                    (html.contains("登入") && html.contains("密碼") && html.contains("驗證碼"))
+        }
     }
 
     private fun normalizeName(name: String): String {
@@ -273,7 +331,7 @@ class EclassRepository(context: Context) {
             .trim()
     }
 
-    private suspend fun syncAnnouncements() {
+    private suspend fun syncAnnouncements(): Boolean {
         val urls = listOf(
             "${NttuHttpClient.BASE_URL}/dashboard/latestBulletin",
             "${NttuHttpClient.BASE_URL}/bulletin",
@@ -281,24 +339,26 @@ class EclassRepository(context: Context) {
         )
         for (url in urls) {
             try {
-                val request = Request.Builder().url(url).build()
-                val response = client.newCall(request).execute()
-                val html = response.use { resp ->
-                    if (resp.isSuccessful) resp.body?.string().orEmpty() else ""
-                }
+                val html = fetchHtmlWithAuth(url)
                 if (html.isBlank()) continue
                 val announcements = AnnouncementHtmlParser.parse(html)
                 if (announcements.isNotEmpty()) {
                     database.announcementDao().deleteAll()
                     database.announcementDao().insertAll(announcements.map { AnnouncementEntity.fromDomain(it) })
-                    break
+                    return true
                 }
+            } catch (e: SessionExpiredException) {
+                throw e
             } catch (_: Exception) {
             }
         }
+        return false
     }
 
-    private suspend fun syncTasks() {
+    private suspend fun syncTasks(): Boolean {
+        var assignmentsSynced = false
+        var examsSynced = false
+
         val homeworkUrls = listOf(
             "${NttuHttpClient.BASE_URL}/homework",
             "${NttuHttpClient.BASE_URL}/app/homework/"
@@ -306,17 +366,16 @@ class EclassRepository(context: Context) {
         var assignments: List<TaskItem> = emptyList()
         for (url in homeworkUrls) {
             try {
-                val homeworkReq = Request.Builder().url(url).build()
-                val homeworkResp = client.newCall(homeworkReq).execute()
-                val homeworkHtml = homeworkResp.use { resp ->
-                    if (resp.isSuccessful) resp.body?.string().orEmpty() else ""
-                }
+                val homeworkHtml = fetchHtmlWithAuth(url)
                 if (homeworkHtml.isBlank()) continue
                 val list = TaskHtmlParser.parse(homeworkHtml, defaultType = TaskType.ASSIGNMENT)
                 if (list.isNotEmpty()) {
                     assignments = list
+                    assignmentsSynced = true
                     break
                 }
+            } catch (e: SessionExpiredException) {
+                throw e
             } catch (_: Exception) {
             }
         }
@@ -328,17 +387,16 @@ class EclassRepository(context: Context) {
         var exams: List<TaskItem> = emptyList()
         for (url in examUrls) {
             try {
-                val examReq = Request.Builder().url(url).build()
-                val examResp = client.newCall(examReq).execute()
-                val examHtml = examResp.use { resp ->
-                    if (resp.isSuccessful) resp.body?.string().orEmpty() else ""
-                }
+                val examHtml = fetchHtmlWithAuth(url)
                 if (examHtml.isBlank()) continue
                 val list = TaskHtmlParser.parse(examHtml, defaultType = TaskType.QUIZ)
                 if (list.isNotEmpty()) {
                     exams = list
+                    examsSynced = true
                     break
                 }
+            } catch (e: SessionExpiredException) {
+                throw e
             } catch (_: Exception) {
             }
         }
@@ -348,6 +406,7 @@ class EclassRepository(context: Context) {
             database.taskDao().deleteAll()
             database.taskDao().insertAll(allTasks.map { TaskEntity.fromDomain(it) })
         }
+        return assignmentsSynced || examsSynced
     }
 
     // ==========================================

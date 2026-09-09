@@ -36,6 +36,8 @@ class SecureCredentialStorage(context: Context) {
         private const val KEY_IS_LOGGED_IN = "is_logged_in"
         private const val KEY_SPECIAL_TOKEN = "special_token"
         private const val KEY_DONATION_INTEGER = "donation_integer"
+        private const val KEY_LAST_APP_VERSION_CODE = "last_app_version_code"
+        private const val KEY_LAST_SYNC_TIMESTAMP = "last_sync_timestamp"
     }
 
     fun getSpecialToken(): String? = prefs.getString(KEY_SPECIAL_TOKEN, null)
@@ -81,5 +83,21 @@ class SecureCredentialStorage(context: Context) {
             .putBoolean(KEY_IS_LOGGED_IN, false)
             .apply()
         cachedLoggedIn = false
+    }
+
+    fun getLastAppVersionCode(): Long = prefs.getLong(KEY_LAST_APP_VERSION_CODE, 0L)
+
+    fun saveLastAppVersionCode(code: Long) {
+        prefs.edit()
+            .putLong(KEY_LAST_APP_VERSION_CODE, code)
+            .apply()
+    }
+
+    fun getLastSyncTimestamp(): Long = prefs.getLong(KEY_LAST_SYNC_TIMESTAMP, 0L)
+
+    fun saveLastSyncTimestamp(timestamp: Long) {
+        prefs.edit()
+            .putLong(KEY_LAST_SYNC_TIMESTAMP, timestamp)
+            .apply()
     }
 }

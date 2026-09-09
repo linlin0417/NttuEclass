@@ -32,6 +32,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import tw.edu.irika.nttueclass.BuildConfig
 import tw.edu.irika.nttueclass.data.remote.auth.AuthManager
 import tw.edu.irika.nttueclass.data.repository.EclassRepository
 import tw.edu.irika.nttueclass.presentation.auth.LoginDialog
@@ -69,6 +70,28 @@ fun MainScaffold(
     var isLoggedIn by remember { mutableStateOf(authManager.secureStorage.isLoggedIn()) }
     var currentStudentId by remember { mutableStateOf(authManager.secureStorage.getStudentId()) }
 
+    // 動態取得當前真實 App 版本資訊 (PackageManager + BuildConfig 後備)
+    val (displayVersionName, displayVersionCode) = remember {
+        try {
+            val pInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.packageManager.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.getPackageInfo(context.packageName, 0)
+            }
+            val vName = pInfo.versionName ?: BuildConfig.VERSION_NAME
+            val vCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                pInfo.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                pInfo.versionCode.toLong()
+            }
+            vName to vCode
+        } catch (_: Exception) {
+            BuildConfig.VERSION_NAME to BuildConfig.VERSION_CODE.toLong()
+        }
+    }
+
     // Android 13+ 通知權限請求管理器
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -87,6 +110,23 @@ fun MainScaffold(
     }
 
     val coroutineScope = rememberCoroutineScope()
+
+    // 升級或啟動時背景智慧同步 (策略 A)：舊用戶升級或快取過期時自動在背景重登並覆蓋最新快取
+    LaunchedEffect(isLoggedIn) {
+        if (isLoggedIn) {
+            val lastVersion = authManager.secureStorage.getLastAppVersionCode()
+            val isUpgrade = lastVersion > 0 && displayVersionCode > lastVersion
+            val isFirstRecordedVersion = lastVersion == 0L
+            val lastSync = authManager.secureStorage.getLastSyncTimestamp()
+            val isStale = (System.currentTimeMillis() - lastSync) > 12 * 60 * 60 * 1000L
+
+            authManager.secureStorage.saveLastAppVersionCode(displayVersionCode)
+
+            if (isUpgrade || isFirstRecordedVersion || isStale) {
+                repository.syncAllData()
+            }
+        }
+    }
 
     val triggerSync: () -> Unit = {
         if (!isLoggedIn) {
@@ -293,7 +333,7 @@ fun MainScaffold(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "版本號：1.0.0 (Build 36)",
+                        text = "版本號：$displayVersionName (Build $displayVersionCode)",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,

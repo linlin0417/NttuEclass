@@ -15,23 +15,35 @@ data class TaskEntity(
     val type: String, // ASSIGNMENT, QUIZ, EXAM
     val dueDateTime: String,
     val remainingHours: Long,
-    val status: String, // PENDING, URGENT, WARNING, COMPLETED
+    val status: String, // PENDING, URGENT, WARNING, OVERDUE, COMPLETED
     val score: String?,
     val isSubmitted: Boolean,
+    val url: String = "",
     val updatedAt: Long = System.currentTimeMillis()
 ) {
-    fun toDomain(): TaskItem = TaskItem(
-        id = id,
-        courseId = courseId,
-        courseName = courseName,
-        title = title,
-        type = runCatching { TaskType.valueOf(type) }.getOrDefault(TaskType.ASSIGNMENT),
-        dueDateTime = dueDateTime,
-        remainingHours = remainingHours,
-        status = runCatching { TaskStatus.valueOf(status) }.getOrDefault(TaskStatus.PENDING),
-        score = score,
-        isSubmitted = isSubmitted
-    )
+    fun toDomain(): TaskItem {
+        val (dynHours, dynStatus) = if (dueDateTime.isNotBlank()) {
+            TaskItem.calculateRemainingHoursAndStatus(dueDateTime, isSubmitted)
+        } else {
+            Pair(
+                remainingHours,
+                if (isSubmitted) TaskStatus.COMPLETED else runCatching { TaskStatus.valueOf(status) }.getOrDefault(TaskStatus.PENDING)
+            )
+        }
+        return TaskItem(
+            id = id,
+            courseId = courseId,
+            courseName = courseName,
+            title = title,
+            type = runCatching { TaskType.valueOf(type) }.getOrDefault(TaskType.ASSIGNMENT),
+            dueDateTime = dueDateTime,
+            remainingHours = dynHours,
+            status = dynStatus,
+            score = score,
+            isSubmitted = isSubmitted,
+            url = url
+        )
+    }
 
     companion object {
         fun fromDomain(domain: TaskItem): TaskEntity = TaskEntity(
@@ -44,7 +56,8 @@ data class TaskEntity(
             remainingHours = domain.remainingHours,
             status = domain.status.name,
             score = domain.score,
-            isSubmitted = domain.isSubmitted
+            isSubmitted = domain.isSubmitted,
+            url = domain.url
         )
     }
 }

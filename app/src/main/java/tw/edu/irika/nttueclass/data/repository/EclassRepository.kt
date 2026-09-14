@@ -3,36 +3,46 @@ package tw.edu.irika.nttueclass.data.repository
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.io.IOException
 import tw.edu.irika.nttueclass.data.local.db.AppDatabase
 import tw.edu.irika.nttueclass.data.local.db.entity.AnnouncementEntity
 import tw.edu.irika.nttueclass.data.local.db.entity.CourseEntity
+import tw.edu.irika.nttueclass.data.local.db.entity.CourseMaterialEntity
 import tw.edu.irika.nttueclass.data.local.db.entity.TaskEntity
 import tw.edu.irika.nttueclass.data.local.db.entity.TimetableSlotEntity
 import tw.edu.irika.nttueclass.data.local.security.SecureCredentialStorage
 import tw.edu.irika.nttueclass.data.remote.auth.AuthManager
+import tw.edu.irika.nttueclass.data.remote.client.CourseMaterialDownloader
 import tw.edu.irika.nttueclass.data.remote.client.NttuHttpClient
 import tw.edu.irika.nttueclass.data.remote.parser.AnnouncementHtmlParser
 import tw.edu.irika.nttueclass.data.remote.parser.CourseHtmlParser
+import tw.edu.irika.nttueclass.data.remote.parser.CourseMaterialParser
 import tw.edu.irika.nttueclass.data.remote.parser.TaskHtmlParser
 import tw.edu.irika.nttueclass.data.remote.parser.TimetableHtmlParser
 import tw.edu.irika.nttueclass.domain.model.AcademicTermHelper
 import tw.edu.irika.nttueclass.domain.model.Announcement
 import tw.edu.irika.nttueclass.domain.model.Course
+import tw.edu.irika.nttueclass.domain.model.CourseMaterial
+import tw.edu.irika.nttueclass.domain.model.MaterialDownloadStatus
 import tw.edu.irika.nttueclass.domain.model.TaskItem
 import tw.edu.irika.nttueclass.domain.model.TaskStatus
 import tw.edu.irika.nttueclass.domain.model.TaskType
 import tw.edu.irika.nttueclass.domain.model.TimetableSlot
+import java.io.File
 
 class SessionExpiredException(message: String) : Exception(message)
 
 class EclassRepository(context: Context) {
+    val appContext: Context = context.applicationContext
     private val database = AppDatabase.getInstance(context)
     private val client = NttuHttpClient.client
     val storage = SecureCredentialStorage(context)
@@ -63,6 +73,21 @@ class EclassRepository(context: Context) {
     fun getTasksStream(): Flow<List<TaskItem>> {
         return database.taskDao().getAllTasks().map { list ->
             if (!storage.isLoggedIn()) emptyList() else list.map { it.toDomain() }
+        }
+    }
+
+    fun getMaterialsStream(courseId: String): Flow<List<CourseMaterial>> {
+        return database.courseMaterialDao().getMaterialsByCourseId(courseId).map { list ->
+            if (!storage.isLoggedIn()) emptyList() else list.map { entity ->
+                val domain = entity.toDomain()
+                // 校準本機檔案狀態：若記錄為已下載但實際檔案已被清除，自動校正為未下載
+                if (domain.downloadStatus == MaterialDownloadStatus.DOWNLOADED && !domain.isFilePresentOnDisk) {
+                    domain.copy(
+                        downloadStatus = MaterialDownloadStatus.NOT_DOWNLOADED,
+                        localFilePath = null
+                    )
+                } else domain
+            }
         }
     }
 
@@ -405,58 +430,105 @@ class EclassRepository(context: Context) {
         return false
     }
 
-    private suspend fun syncTasks(): Boolean {
-        var assignmentsSynced = false
-        var examsSynced = false
+    /**
+     * 依課程獨立並行同步全校作業、測驗與問卷（透過 Semaphore 進行並行控制）
+     */
+    private suspend fun syncTasks(): Boolean = withContext(Dispatchers.IO) {
+        val courses = database.courseDao().getAllCoursesList()
+        val validCourses = courses.filter { it.id.isNotBlank() && !it.id.startsWith("c_") && it.id.all { ch -> ch.isDigit() } }
+        if (validCourses.isEmpty()) return@withContext false
 
-        val homeworkUrls = listOf(
-            "${NttuHttpClient.BASE_URL}/homework",
-            "${NttuHttpClient.BASE_URL}/app/homework/"
-        )
-        var assignments: List<TaskItem> = emptyList()
-        for (url in homeworkUrls) {
-            try {
-                val homeworkHtml = fetchHtmlWithAuth(url)
-                if (homeworkHtml.isBlank()) continue
-                val list = TaskHtmlParser.parse(homeworkHtml, defaultType = TaskType.ASSIGNMENT)
-                if (list.isNotEmpty()) {
-                    assignments = list
-                    assignmentsSynced = true
-                    break
-                }
-            } catch (e: SessionExpiredException) {
-                throw e
-            } catch (_: Exception) {
-            }
+        val semaphore = Semaphore(3) // 並行上限設為 3 個請求，避免學校伺服器負載過高
+        val allTasks = coroutineScope {
+            validCourses.flatMap { course ->
+                listOf(
+                    async {
+                        semaphore.withPermit {
+                            runCatching {
+                                val url = "${NttuHttpClient.BASE_URL}/course/homeworkList/${course.id}"
+                                val html = fetchHtmlWithAuth(url)
+                                TaskHtmlParser.parse(html, defaultCourseId = course.id, defaultCourseName = course.name, defaultType = TaskType.ASSIGNMENT)
+                            }.getOrDefault(emptyList())
+                        }
+                    },
+                    async {
+                        semaphore.withPermit {
+                            runCatching {
+                                val url = "${NttuHttpClient.BASE_URL}/course/examList/${course.id}"
+                                val html = fetchHtmlWithAuth(url)
+                                TaskHtmlParser.parse(html, defaultCourseId = course.id, defaultCourseName = course.name, defaultType = TaskType.QUIZ)
+                            }.getOrDefault(emptyList())
+                        }
+                    },
+                    async {
+                        semaphore.withPermit {
+                            runCatching {
+                                val url = "${NttuHttpClient.BASE_URL}/course/questionnaireList/${course.id}"
+                                val html = fetchHtmlWithAuth(url)
+                                TaskHtmlParser.parse(html, defaultCourseId = course.id, defaultCourseName = course.name, defaultType = TaskType.QUESTIONNAIRE)
+                            }.getOrDefault(emptyList())
+                        }
+                    }
+                )
+            }.awaitAll().flatten()
         }
 
-        val examUrls = listOf(
-            "${NttuHttpClient.BASE_URL}/exam",
-            "${NttuHttpClient.BASE_URL}/app/exam/"
-        )
-        var exams: List<TaskItem> = emptyList()
-        for (url in examUrls) {
-            try {
-                val examHtml = fetchHtmlWithAuth(url)
-                if (examHtml.isBlank()) continue
-                val list = TaskHtmlParser.parse(examHtml, defaultType = TaskType.QUIZ)
-                if (list.isNotEmpty()) {
-                    exams = list
-                    examsSynced = true
-                    break
-                }
-            } catch (e: SessionExpiredException) {
-                throw e
-            } catch (_: Exception) {
-            }
-        }
-
-        val allTasks = assignments + exams
         if (allTasks.isNotEmpty()) {
             database.taskDao().deleteAll()
             database.taskDao().insertAll(allTasks.map { TaskEntity.fromDomain(it) })
+            return@withContext true
         }
-        return assignmentsSynced || examsSynced
+        return@withContext false
+    }
+
+    /**
+     * 單一課程隨選即時同步（供 CourseDetailScreen 獨立呼叫）
+     */
+    suspend fun syncCourseTasks(courseId: String, courseName: String = ""): Result<List<TaskItem>> = withContext(Dispatchers.IO) {
+        if (courseId.isBlank() || courseId.startsWith("c_") || !courseId.all { it.isDigit() }) {
+            return@withContext Result.success(emptyList())
+        }
+
+        try {
+            val hwUrl = "${NttuHttpClient.BASE_URL}/course/homeworkList/$courseId"
+            val examUrl = "${NttuHttpClient.BASE_URL}/course/examList/$courseId"
+            val surveyUrl = "${NttuHttpClient.BASE_URL}/course/questionnaireList/$courseId"
+
+            val resolvedCourseName = courseName.ifBlank {
+                database.courseDao().getCourseById(courseId)?.name.orEmpty()
+            }
+
+            val (hwList, examList, surveyList) = coroutineScope {
+                val hwJob = async {
+                    runCatching {
+                        val html = fetchHtmlWithAuth(hwUrl)
+                        TaskHtmlParser.parse(html, defaultCourseId = courseId, defaultCourseName = resolvedCourseName, defaultType = TaskType.ASSIGNMENT)
+                    }.getOrDefault(emptyList())
+                }
+                val examJob = async {
+                    runCatching {
+                        val html = fetchHtmlWithAuth(examUrl)
+                        TaskHtmlParser.parse(html, defaultCourseId = courseId, defaultCourseName = resolvedCourseName, defaultType = TaskType.QUIZ)
+                    }.getOrDefault(emptyList())
+                }
+                val surveyJob = async {
+                    runCatching {
+                        val html = fetchHtmlWithAuth(surveyUrl)
+                        TaskHtmlParser.parse(html, defaultCourseId = courseId, defaultCourseName = resolvedCourseName, defaultType = TaskType.QUESTIONNAIRE)
+                    }.getOrDefault(emptyList())
+                }
+                Triple(hwJob.await(), examJob.await(), surveyJob.await())
+            }
+
+            val courseAllTasks = hwList + examList + surveyList
+            if (courseAllTasks.isNotEmpty()) {
+                database.taskDao().insertAll(courseAllTasks.map { TaskEntity.fromDomain(it) })
+                updateCourseCounters()
+            }
+            Result.success(courseAllTasks)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     // ==========================================
@@ -553,6 +625,121 @@ class EclassRepository(context: Context) {
         database.courseDao().insertAll(updatedCourses)
     }
 
+    // ==========================================
+    // 課程教材同步與本機下載管理 (Course Materials & Download Manager)
+    // ==========================================
+    suspend fun syncCourseMaterials(courseId: String): Result<List<CourseMaterial>> = withContext(Dispatchers.IO) {
+        try {
+            val urls = listOf(
+                "${NttuHttpClient.BASE_URL}/api/courses/$courseId/activities?sub_course_id=0",
+                "${NttuHttpClient.BASE_URL}/api/courses/$courseId/syllabus",
+                "${NttuHttpClient.BASE_URL}/course/$courseId/content",
+                "${NttuHttpClient.BASE_URL}/course/$courseId/learning-activity",
+                "${NttuHttpClient.BASE_URL}/app/course/courseware.php?csid=$courseId"
+            )
+
+            var parsedMaterials: List<CourseMaterial> = emptyList()
+            for (url in urls) {
+                try {
+                    val raw = fetchHtmlWithAuth(url)
+                    if (raw.isBlank()) continue
+                    val list = CourseMaterialParser.parse(courseId, raw)
+                    if (list.isNotEmpty()) {
+                        parsedMaterials = list
+                        break
+                    }
+                } catch (e: SessionExpiredException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+            }
+
+            // 與 Room 現有快取合併（妥善保留已下載 localFilePath 與狀態）
+            val existing = database.courseMaterialDao().getMaterialsByCourseIdList(courseId)
+            val existingMap = existing.associateBy { it.id }
+
+            val merged = parsedMaterials.map { parsed ->
+                val local = existingMap[parsed.id]
+                if (local != null && local.downloadStatus == MaterialDownloadStatus.DOWNLOADED.ordinal && !local.localFilePath.isNullOrBlank()) {
+                    val file = File(local.localFilePath)
+                    if (file.exists() && file.length() > 0) {
+                        parsed.copy(
+                            localFilePath = local.localFilePath,
+                            downloadStatus = MaterialDownloadStatus.DOWNLOADED
+                        )
+                    } else parsed
+                } else parsed
+            }
+
+            if (merged.isNotEmpty()) {
+                database.courseMaterialDao().insertAll(merged.map { CourseMaterialEntity.fromDomain(it) })
+            }
+
+            Result.success(merged)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun downloadMaterial(
+        material: CourseMaterial,
+        onProgress: (Float) -> Unit
+    ): Result<File> = withContext(Dispatchers.IO) {
+        try {
+            database.courseMaterialDao().updateDownloadStatus(
+                material.id,
+                MaterialDownloadStatus.DOWNLOADING.ordinal,
+                null
+            )
+
+            val downloadResult = CourseMaterialDownloader.download(appContext, material, onProgress)
+            if (downloadResult.isSuccess) {
+                val file = downloadResult.getOrThrow()
+                database.courseMaterialDao().updateDownloadStatus(
+                    material.id,
+                    MaterialDownloadStatus.DOWNLOADED.ordinal,
+                    file.absolutePath
+                )
+                Result.success(file)
+            } else {
+                database.courseMaterialDao().updateDownloadStatus(
+                    material.id,
+                    MaterialDownloadStatus.FAILED.ordinal,
+                    null
+                )
+                Result.failure(downloadResult.exceptionOrNull() ?: IOException("教材下載失敗"))
+            }
+        } catch (e: Exception) {
+            database.courseMaterialDao().updateDownloadStatus(
+                material.id,
+                MaterialDownloadStatus.FAILED.ordinal,
+                null
+            )
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteDownloadedMaterial(material: CourseMaterial) = withContext(Dispatchers.IO) {
+        CourseMaterialDownloader.deleteLocalFile(material.localFilePath)
+        database.courseMaterialDao().updateDownloadStatus(
+            material.id,
+            MaterialDownloadStatus.NOT_DOWNLOADED.ordinal,
+            null
+        )
+    }
+
+    suspend fun addCustomMaterial(material: CourseMaterial) = withContext(Dispatchers.IO) {
+        database.courseMaterialDao().insert(CourseMaterialEntity.fromDomain(material))
+    }
+
+    suspend fun deleteMaterial(materialId: String) = withContext(Dispatchers.IO) {
+        val existing = database.courseMaterialDao().getMaterialById(materialId)
+        if (existing != null) {
+            CourseMaterialDownloader.deleteLocalFile(existing.localFilePath)
+            database.courseMaterialDao().deleteById(materialId)
+        }
+    }
+
     /**
      * 清空本地所有快取資料（用於使用者登出時維護資訊安全）
      */
@@ -561,5 +748,10 @@ class EclassRepository(context: Context) {
         database.courseDao().deleteAll()
         database.announcementDao().deleteAll()
         database.taskDao().deleteAll()
+        database.courseMaterialDao().deleteAll()
+        try {
+            val baseDir = appContext.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
+            File(baseDir, "materials").deleteRecursively()
+        } catch (_: Exception) {}
     }
 }

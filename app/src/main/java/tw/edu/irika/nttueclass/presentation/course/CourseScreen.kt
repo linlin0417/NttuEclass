@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Class
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
@@ -43,6 +44,7 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -92,6 +94,7 @@ fun CourseScreen(
     isLoggedIn: Boolean,
     onOpenLogin: () -> Unit,
     onSync: () -> Unit,
+    onNavigateToCourseDetail: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -243,7 +246,20 @@ fun CourseScreen(
                         items(filteredCourses) { course ->
                             CourseCard(
                                 course = course,
-                                onClick = { selectedCourseForDetail = course }
+                                onClick = {
+                                    if (onNavigateToCourseDetail != null) {
+                                        onNavigateToCourseDetail(course.id)
+                                    } else {
+                                        selectedCourseForDetail = course
+                                    }
+                                },
+                                onOpenMaterials = {
+                                    if (onNavigateToCourseDetail != null) {
+                                        onNavigateToCourseDetail(course.id)
+                                    } else {
+                                        selectedCourseForDetail = course
+                                    }
+                                }
                             )
                         }
                         item { Spacer(modifier = Modifier.height(16.dp)) }
@@ -364,9 +380,18 @@ fun CourseScreen(
             slots = courseSlots,
             announcements = courseAnnouncements,
             tasks = courseTasks,
+            onOpenMaterials = {
+                selectedCourseForDetail = null
+                onNavigateToCourseDetail?.invoke(course.id)
+            },
             onOpenWeb = {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("${NttuHttpClient.BASE_URL}/app/course/"))
-                context.startActivity(intent)
+                // TODO: 後續大更新時改成全部做進應用程式裡面 (在 App 內直接提供完整課程檢視介面，無需跳轉外部瀏覽器)
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("${NttuHttpClient.BASE_URL}/course"))
+                    context.startActivity(intent)
+                } catch (_: Exception) {
+                    Toast.makeText(context, "無法開啟瀏覽器", Toast.LENGTH_SHORT).show()
+                }
             },
             onSelectAnnouncement = { ann ->
                 selectedCourseForDetail = null
@@ -402,8 +427,13 @@ fun CourseScreen(
         AnnouncementDetailDialog(
             announcement = announcement,
             onOpenWeb = {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("${NttuHttpClient.BASE_URL}/app/bulletin/"))
-                context.startActivity(intent)
+                // TODO: 後續大更新時改成全部做進應用程式裡面 (在 App 內直接提供完整公告檢視介面，無需跳轉外部瀏覽器)
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("${NttuHttpClient.BASE_URL}/bulletin"))
+                    context.startActivity(intent)
+                } catch (_: Exception) {
+                    Toast.makeText(context, "無法開啟瀏覽器", Toast.LENGTH_SHORT).show()
+                }
             },
             onDismiss = { selectedAnnouncementForDetail = null }
         )
@@ -413,7 +443,8 @@ fun CourseScreen(
 @Composable
 private fun CourseCard(
     course: Course,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onOpenMaterials: () -> Unit = onClick
 ) {
     Card(
         onClick = onClick,
@@ -529,6 +560,39 @@ private fun CourseCard(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.clickable { onOpenMaterials() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "課程教材與專區",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -629,6 +693,7 @@ private fun CourseDetailDialog(
     slots: List<TimetableSlot>,
     announcements: List<Announcement>,
     tasks: List<TaskItem>,
+    onOpenMaterials: () -> Unit,
     onOpenWeb: () -> Unit,
     onSelectAnnouncement: (Announcement) -> Unit,
     onDelete: () -> Unit,
@@ -822,10 +887,16 @@ private fun CourseDetailDialog(
                     Text("刪除課程")
                 }
                 Row {
-                    Button(onClick = onOpenWeb) {
+                    FilledTonalButton(onClick = onOpenMaterials) {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("教材專區")
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    OutlinedButton(onClick = onOpenWeb) {
                         Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("開啟 eClass")
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("eClass")
                     }
                     Spacer(modifier = Modifier.width(4.dp))
                     TextButton(onClick = onDismiss) {
@@ -946,7 +1017,7 @@ private fun AddCourseDialog(
  * 完整公告詳細資料對話框
  */
 @Composable
-private fun AnnouncementDetailDialog(
+internal fun AnnouncementDetailDialog(
     announcement: Announcement,
     onOpenWeb: () -> Unit,
     onDismiss: () -> Unit

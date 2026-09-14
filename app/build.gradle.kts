@@ -21,8 +21,8 @@ android {
         applicationId = "tw.edu.irika.nttueclass"
         minSdk = 33
         targetSdk = 36
-        versionCode = 10101
-        versionName = "1.1.1"
+        versionCode = 10103
+        versionName = "1.1.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -143,6 +143,7 @@ dependencies {
 
     // Testing
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

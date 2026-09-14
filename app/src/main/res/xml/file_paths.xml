@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- App 專屬下載目錄中的教材檔案 (Android/data/.../files/Download/materials) -->
+    <external-files-path
+        name="materials_download"
+        path="Download/materials/" />
+    
+    <!-- 常用內部與外部快取，防範特定路徑儲存例外 -->
+    <external-files-path
+        name="external_files"
+        path="." />
+    <files-path
+        name="internal_files"
+        path="." />
+    <cache-path
+        name="cache_files"
+        path="." />
+</paths>

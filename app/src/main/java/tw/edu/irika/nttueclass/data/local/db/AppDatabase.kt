@@ -6,11 +6,13 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import tw.edu.irika.nttueclass.data.local.db.dao.AnnouncementDao
 import tw.edu.irika.nttueclass.data.local.db.dao.CourseDao
+import tw.edu.irika.nttueclass.data.local.db.dao.CourseMaterialDao
 import tw.edu.irika.nttueclass.data.local.db.dao.RollCallRecordDao
 import tw.edu.irika.nttueclass.data.local.db.dao.TaskDao
 import tw.edu.irika.nttueclass.data.local.db.dao.TimetableDao
 import tw.edu.irika.nttueclass.data.local.db.entity.AnnouncementEntity
 import tw.edu.irika.nttueclass.data.local.db.entity.CourseEntity
+import tw.edu.irika.nttueclass.data.local.db.entity.CourseMaterialEntity
 import tw.edu.irika.nttueclass.data.local.db.entity.RollCallRecordEntity
 import tw.edu.irika.nttueclass.data.local.db.entity.TaskEntity
 import tw.edu.irika.nttueclass.data.local.db.entity.TimetableSlotEntity
@@ -21,9 +23,10 @@ import tw.edu.irika.nttueclass.data.local.db.entity.TimetableSlotEntity
         TimetableSlotEntity::class,
         AnnouncementEntity::class,
         TaskEntity::class,
-        RollCallRecordEntity::class
+        RollCallRecordEntity::class,
+        CourseMaterialEntity::class
     ],
-    version = 3,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -32,6 +35,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun announcementDao(): AnnouncementDao
     abstract fun taskDao(): TaskDao
     abstract fun rollCallRecordDao(): RollCallRecordDao
+    abstract fun courseMaterialDao(): CourseMaterialDao
 
     companion object {
         @Volatile

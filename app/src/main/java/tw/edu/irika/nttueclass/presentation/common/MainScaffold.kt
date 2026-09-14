@@ -36,10 +36,13 @@ import tw.edu.irika.nttueclass.BuildConfig
 import tw.edu.irika.nttueclass.data.remote.auth.AuthManager
 import tw.edu.irika.nttueclass.data.repository.EclassRepository
 import tw.edu.irika.nttueclass.presentation.auth.LoginDialog
+import tw.edu.irika.nttueclass.presentation.course.CourseDetailScreen
 import tw.edu.irika.nttueclass.presentation.course.CourseScreen
 import tw.edu.irika.nttueclass.presentation.dashboard.DashboardScreen
 import tw.edu.irika.nttueclass.presentation.donation.DonationScreen
 import tw.edu.irika.nttueclass.presentation.navigation.Screen
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import android.Manifest
 import android.content.pm.PackageManager
 
@@ -154,11 +157,12 @@ fun MainScaffold(
         Screen.Verifier.route -> Screen.Verifier
         else -> Screen.Dashboard
     }
+    val isCourseDetail = currentRoute?.startsWith("course_detail") == true
 
     NttuEclassTheme(darkTheme = isDarkTheme) {
         Scaffold(
             topBar = {
-                if (currentScreen != Screen.Pass && currentScreen != Screen.Verifier) {
+                if (currentScreen != Screen.Pass && currentScreen != Screen.Verifier && !isCourseDetail) {
                     AppTopBar(
                         currentScreen = currentScreen,
                         isDarkTheme = isDarkTheme,
@@ -239,7 +243,23 @@ fun MainScaffold(
                         repository = repository,
                         isLoggedIn = isLoggedIn,
                         onOpenLogin = { showLoginDialog = true },
-                        onSync = triggerSync
+                        onSync = triggerSync,
+                        onNavigateToCourseDetail = { courseId ->
+                            navController.navigate(Screen.courseDetailRoute(courseId))
+                        }
+                    )
+                }
+                composable(
+                    route = Screen.COURSE_DETAIL_ROUTE,
+                    arguments = listOf(navArgument("courseId") { type = NavType.StringType })
+                ) { backStackEntry ->
+                    val courseId = backStackEntry.arguments?.getString("courseId").orEmpty()
+                    CourseDetailScreen(
+                        courseId = courseId,
+                        repository = repository,
+                        isLoggedIn = isLoggedIn,
+                        onNavigateBack = { navController.popBackStack() },
+                        onOpenLogin = { showLoginDialog = true }
                     )
                 }
                 composable(Screen.Tasks.route) {

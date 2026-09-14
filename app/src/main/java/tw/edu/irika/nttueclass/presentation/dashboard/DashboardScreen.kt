@@ -101,17 +101,21 @@ fun DashboardScreen(
         }
     }
 
-    // 動態計算最緊急待辦
+    // 動態計算最緊急待辦 (優先即將截止與待繳交，避免過期作業霸佔首頁預警)
     val urgentTask = remember(tasks) {
-        tasks.filter { !it.isSubmitted }
-            .sortedWith(
+        val activeTasks = tasks.filter { !it.isSubmitted && it.status != TaskStatus.OVERDUE }
+        if (activeTasks.isNotEmpty()) {
+            activeTasks.sortedWith(
                 compareBy(
                     { it.status != TaskStatus.URGENT },
                     { it.status != TaskStatus.WARNING },
                     { it.remainingHours }
                 )
-            )
-            .firstOrNull()
+            ).firstOrNull()
+        } else {
+            tasks.filter { !it.isSubmitted && it.status == TaskStatus.OVERDUE }
+                .maxByOrNull { it.remainingHours }
+        }
     }
 
     // 動態取得最新前兩筆公告
@@ -543,11 +547,13 @@ private fun UrgentTasksCard(
                             )
                         }
                         val statusColor = when (urgentTask.status) {
+                            TaskStatus.OVERDUE -> MaterialTheme.colorScheme.error
                             TaskStatus.URGENT -> StatusUrgent
                             TaskStatus.WARNING -> StatusWarning
                             else -> MaterialTheme.colorScheme.primary
                         }
                         val statusLabel = when (urgentTask.status) {
+                            TaskStatus.OVERDUE -> "已逾期"
                             TaskStatus.URGENT -> "即將截止"
                             TaskStatus.WARNING -> "注意截止"
                             TaskStatus.COMPLETED -> "已完成"
@@ -558,7 +564,7 @@ private fun UrgentTasksCard(
                             shape = RoundedCornerShape(6.dp)
                         ) {
                             Text(
-                                text = if (urgentTask.remainingHours > 0) "剩 ${urgentTask.remainingHours} 小時" else statusLabel,
+                                text = if (urgentTask.status == TaskStatus.OVERDUE) "已逾期" else if (urgentTask.remainingHours > 0) "剩 ${urgentTask.remainingHours} 小時" else statusLabel,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = statusColor,

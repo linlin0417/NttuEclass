@@ -27,5 +27,7 @@ sealed class Screen(
         val bottomNavScreens: List<Screen> by lazy {
             listOf(Dashboard, Timetable, Courses, Tasks)
         }
+        const val COURSE_DETAIL_ROUTE = "course_detail/{courseId}"
+        fun courseDetailRoute(courseId: String): String = "course_detail/$courseId"
     }
 }

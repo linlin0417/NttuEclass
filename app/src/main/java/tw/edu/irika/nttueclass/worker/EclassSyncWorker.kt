@@ -36,12 +36,12 @@ class EclassSyncWorker(
             )
         }
 
-        // 3. 檢核作業與測驗截止預警 (截止前 24 小時與 3 小時)
+        // 3. 檢核作業與測驗截止預警 (截止前 24 小時與 3 小時，排除已逾期項目)
         val tasks = repository.getTasksStream().firstOrNull() ?: emptyList()
-        tasks.filter { !it.isSubmitted && (it.status == TaskStatus.URGENT || it.status == TaskStatus.WARNING) }
+        tasks.filter { !it.isSubmitted && (it.status == TaskStatus.URGENT || it.status == TaskStatus.WARNING) && it.status != TaskStatus.OVERDUE }
             .take(2)
             .forEach { task ->
-                val isUrgent = task.status == TaskStatus.URGENT || task.remainingHours <= 3
+                val isUrgent = task.status == TaskStatus.URGENT || (task.remainingHours in 1..3)
                 NotificationHelper.showTaskAlertNotification(
                     context = applicationContext,
                     title = task.title,

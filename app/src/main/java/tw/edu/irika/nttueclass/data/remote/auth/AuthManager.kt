@@ -37,14 +37,14 @@ class AuthManager(private val context: Context) {
 
         // 1. 前置守衛：禁止空憑證或空白字串
         if (trimmedId.isBlank() || password.isBlank()) {
-            Log.w(TAG, "❌ 前置守衛: 帳號或密碼為空")
+            Log.w(TAG, "前置守衛: 帳號或密碼為空")
             return@withContext AuthResult.EmptyInput("學號或密碼不能為空")
         }
 
         // 2. 檢核是否處於 30 分鐘本地熔斷冷卻中 (防範連續 5 次錯誤)
         if (lockoutManager.isLockedOut()) {
             val remainingSec = lockoutManager.getRemainingLockoutSeconds()
-            Log.w(TAG, "❌ 本地熔斷鎖定中，剩餘 ${remainingSec}s")
+            Log.w(TAG, "本地熔斷鎖定中，剩餘 ${remainingSec}s")
             return@withContext AuthResult.LockedOut(
                 remainingSeconds = remainingSec,
                 message = "帳號因多次登入失敗已啟動保護鎖定，請等待 ${remainingSec / 60} 分鐘後再試。"
@@ -54,10 +54,10 @@ class AuthManager(private val context: Context) {
         // 準備 CaptchaSolver
         val solver = CaptchaSolver(context)
         if (!solver.init()) {
-            Log.e(TAG, "❌ CaptchaSolver 初始化失敗")
+            Log.e(TAG, "CaptchaSolver 初始化失敗")
             return@withContext AuthResult.NetworkError("無法初始化驗證碼辨識模組，請重試")
         }
-        Log.d(TAG, "✅ CaptchaSolver 初始化成功")
+        Log.d(TAG, "CaptchaSolver 初始化成功")
 
         try {
             // 迴圈重試 (最多 15 次)
@@ -82,14 +82,14 @@ class AuthManager(private val context: Context) {
 
                 if (anticsrf.isEmpty() && !hasLoginForm) {
                     // 如果沒有anticsrf且不是登入頁，代表可能已經登入了
-                    Log.d(TAG, "✅ 無anticsrf也無login_form → 判定為已登入")
+                    Log.d(TAG, "無anticsrf也無login_form -> 判定為已登入")
                     lockoutManager.recordSuccess()
                     secureStorage.saveCredentials(trimmedId, password)
                     return@withContext AuthResult.Success(trimmedId)
                 }
 
                 if (anticsrf.isEmpty()) {
-                    Log.w(TAG, "⚠️ anticsrf 為空但有 login_form，可能頁面結構有變")
+                    Log.w(TAG, "anticsrf 為空但有 login_form，可能頁面結構有變")
                 }
 
                 // 4. 取得驗證碼圖片
@@ -102,7 +102,7 @@ class AuthManager(private val context: Context) {
                 val bitmap = android.graphics.BitmapFactory.decodeStream(captchaStream)
                 
                 if (bitmap == null) {
-                    Log.w(TAG, "⚠️ [STEP 4] 驗證碼圖片解碼失敗 (bitmap=null)，重試")
+                    Log.w(TAG, "[STEP 4] 驗證碼圖片解碼失敗 (bitmap=null)，重試")
                     continue
                 }
                 Log.d(TAG, "[STEP 4] 驗證碼圖片: ${bitmap.width}x${bitmap.height}, config=${bitmap.config}")
@@ -112,7 +112,7 @@ class AuthManager(private val context: Context) {
                 Log.d(TAG, "[STEP 5] OCR 辨識結果: '$captchaCode' (長度=${captchaCode.length})")
                 
                 if (captchaCode.length != 6) {
-                    Log.w(TAG, "⚠️ [STEP 5] 驗證碼位數不正確(${captchaCode.length}!=6)，重試")
+                    Log.w(TAG, "[STEP 5] 驗證碼位數不正確(${captchaCode.length}!=6)，重試")
                     continue
                 }
 
@@ -155,7 +155,7 @@ class AuthManager(private val context: Context) {
                     Log.d(TAG, "[STEP 7] JSON status: '$status'")
 
                     if (status == "true") {
-                        Log.d(TAG, "✅ [STEP 7] 登入成功！")
+                        Log.d(TAG, "[STEP 7] 登入成功！")
                         lockoutManager.recordSuccess()
                         secureStorage.saveCredentials(trimmedId, password)
                         return@withContext AuthResult.Success(trimmedId)
@@ -179,22 +179,22 @@ class AuthManager(private val context: Context) {
                         // 提取剩餘分鐘數
                         val minuteMatch = Regex("(\\d+)\\s*分鐘").find(combinedMsg)
                         val minutes = minuteMatch?.groupValues?.get(1)?.toLongOrNull() ?: 30
-                        Log.e(TAG, "❌ [STEP 7] 伺服器端鎖定！剩餘 ${minutes} 分鐘")
+                        Log.e(TAG, "[STEP 7] 伺服器端鎖定！剩餘 ${minutes} 分鐘")
                         return@withContext AuthResult.LockedOut(
                             remainingSeconds = minutes * 60,
                             message = "學校伺服器已鎖定此帳號，請等待 $minutes 分鐘後再嘗試登入。"
                         )
                     }
 
-                    // 驗證碼錯誤 → 重試
+                    // 驗證碼錯誤 -> 重試
                     if (combinedMsg.contains("驗證碼") || combinedMsg.contains("captcha")) {
-                        Log.w(TAG, "⚠️ [STEP 7] 驗證碼錯誤 (captcha=$captchaCode)，重試")
+                        Log.w(TAG, "[STEP 7] 驗證碼錯誤 (captcha=$captchaCode)，重試")
                         continue
                     }
 
                     // 帳號/密碼錯誤
                     if (combinedMsg.contains("密碼") || combinedMsg.contains("帳號") || combinedMsg.contains("登入失敗")) {
-                        Log.e(TAG, "❌ [STEP 7] 帳號或密碼錯誤")
+                        Log.e(TAG, "[STEP 7] 帳號或密碼錯誤")
                         val failureCount = lockoutManager.recordFailure()
                         val remaining = lockoutManager.getRemainingAttempts()
 
@@ -212,30 +212,30 @@ class AuthManager(private val context: Context) {
                     }
 
                     // 其他未知失敗
-                    Log.w(TAG, "⚠️ [STEP 7] 未匹配的錯誤: $combinedMsg")
+                    Log.w(TAG, "[STEP 7] 未匹配的錯誤: $combinedMsg")
 
                 } catch (jsonEx: Exception) {
-                    Log.w(TAG, "⚠️ [STEP 7] JSON 解析失敗，嘗試原始比對: ${jsonEx.message}")
+                    Log.w(TAG, "[STEP 7] JSON 解析失敗，嘗試原始比對: ${jsonEx.message}")
                     // Fallback: 若非 JSON 格式，可能是 HTML 重導
                     if (responseBody.contains("dashboard") && !responseBody.contains("login")) {
-                        Log.d(TAG, "✅ [STEP 7] 頁面已重導至 dashboard，判定登入成功")
+                        Log.d(TAG, "[STEP 7] 頁面已重導至 dashboard，判定登入成功")
                         lockoutManager.recordSuccess()
                         secureStorage.saveCredentials(trimmedId, password)
                         return@withContext AuthResult.Success(trimmedId)
                     }
                 }
 
-                Log.w(TAG, "⚠️ [STEP 7] 本次嘗試未成功，繼續重試...")
+                Log.w(TAG, "[STEP 7] 本次嘗試未成功，繼續重試...")
             }
             
-            Log.e(TAG, "❌ 15次嘗試全部失敗")
+            Log.e(TAG, "15次嘗試全部失敗")
             return@withContext AuthResult.NetworkError("自動識別驗證碼多次失敗，請稍後重試")
 
         } catch (e: IOException) {
-            Log.e(TAG, "❌ IOException: ${e.message}", e)
+            Log.e(TAG, "IOException: ${e.message}", e)
             return@withContext AuthResult.NetworkError("網路連線失敗，請檢查網路連線：${e.localizedMessage}")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ 未預期異常: ${e.message}", e)
+            Log.e(TAG, "未預期異常: ${e.message}", e)
             return@withContext AuthResult.NetworkError("登入過程發生錯誤：${e.localizedMessage}")
         }
     }

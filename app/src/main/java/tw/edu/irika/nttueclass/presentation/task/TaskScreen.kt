@@ -2,6 +2,7 @@ package tw.edu.irika.nttueclass.presentation.task
 
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,6 +38,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -72,30 +75,58 @@ fun TaskScreen(
 ) {
     val context = LocalContext.current
     val isDark = isSystemInDarkTheme()
-    var selectedFilter by remember { mutableIntStateOf(0) } // 0: 全部, 1: 待繳交, 2: 即將截止, 3: 已完成
+    var selectedCategory by remember { mutableIntStateOf(0) } // 0: 作業, 1: 測驗, 2: 問卷
+    var selectedFilter by remember { mutableIntStateOf(0) } // 0: 全部, 1: 待繳交, 2: 即將截止, 3: 已逾期, 4: 已完成
     var selectedTaskForDetail by remember { mutableStateOf<TaskItem?>(null) }
 
     // 從真實 Room 資料庫訂閱待辦與作業資料流
     val tasks by repository.getTasksStream().collectAsState(initial = emptyList())
 
-    val pendingCount = tasks.count { !it.isSubmitted }
-    val urgentCount = tasks.count { !it.isSubmitted && (it.status == TaskStatus.URGENT || it.status == TaskStatus.WARNING) }
-    val completedCount = tasks.count { it.isSubmitted }
+    val assignmentTasks = remember(tasks) { tasks.filter { it.type == TaskType.ASSIGNMENT } }
+    val quizTasks = remember(tasks) { tasks.filter { it.type == TaskType.QUIZ || it.type == TaskType.EXAM } }
+    val surveyTasks = remember(tasks) { tasks.filter { it.type == TaskType.QUESTIONNAIRE } }
+
+    val categoryTabs = listOf(
+        "作業 (${assignmentTasks.size})",
+        "測驗 (${quizTasks.size})",
+        "問卷 (${surveyTasks.size})"
+    )
+
+    val currentCategoryTasks = when (selectedCategory) {
+        0 -> assignmentTasks
+        1 -> quizTasks
+        2 -> surveyTasks
+        else -> assignmentTasks
+    }
+
+    val pendingCount = currentCategoryTasks.count { !it.isSubmitted && it.status != TaskStatus.OVERDUE }
+    val urgentCount = currentCategoryTasks.count { !it.isSubmitted && (it.status == TaskStatus.URGENT || it.status == TaskStatus.WARNING) }
+    val overdueCount = currentCategoryTasks.count { !it.isSubmitted && it.status == TaskStatus.OVERDUE }
+    val completedCount = currentCategoryTasks.count { it.isSubmitted }
 
     val filterOptions = listOf(
-        "全部 (${tasks.size})",
+        "全部 (${currentCategoryTasks.size})",
         "待繳交 ($pendingCount)",
         "即將截止 ($urgentCount)",
+        "已逾期 ($overdueCount)",
         "已完成 ($completedCount)"
     )
 
-    val filteredTasks = tasks.filter { task ->
+    val filteredTasks = currentCategoryTasks.filter { task ->
         when (selectedFilter) {
-            1 -> !task.isSubmitted
+            1 -> !task.isSubmitted && task.status != TaskStatus.OVERDUE
             2 -> !task.isSubmitted && (task.status == TaskStatus.URGENT || task.status == TaskStatus.WARNING)
-            3 -> task.isSubmitted
+            3 -> !task.isSubmitted && task.status == TaskStatus.OVERDUE
+            4 -> task.isSubmitted
             else -> true
         }
+    }
+
+    val categoryName = when (selectedCategory) {
+        0 -> "作業"
+        1 -> "測驗"
+        2 -> "問卷"
+        else -> "項目"
     }
 
     Column(
@@ -103,6 +134,33 @@ fun TaskScreen(
             .fillMaxSize()
             .padding(horizontal = 16.dp)
     ) {
+        // 頂部大分類分頁：作業 / 測驗 / 問卷
+        TabRow(
+            selectedTabIndex = selectedCategory,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+        ) {
+            categoryTabs.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedCategory == index,
+                    onClick = {
+                        selectedCategory = index
+                        selectedFilter = 0
+                    },
+                    text = {
+                        Text(
+                            text = title,
+                            fontWeight = if (selectedCategory == index) FontWeight.Bold else FontWeight.Normal,
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
+                )
+            }
+        }
+
         // 篩選 Chip 橫列
         LazyRow(
             modifier = Modifier
@@ -110,7 +168,7 @@ fun TaskScreen(
                 .padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(filterOptions.indices.toList()) { index ->
+            items(filterOptions.size) { index ->
                 val isSelected = selectedFilter == index
                 FilterChip(
                     selected = isSelected,
@@ -143,31 +201,31 @@ fun TaskScreen(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Icon(
-                        imageVector = if (tasks.isEmpty()) Icons.Default.EventBusy else Icons.Default.CheckCircle,
+                        imageVector = if (currentCategoryTasks.isEmpty()) Icons.Default.EventBusy else Icons.Default.CheckCircle,
                         contentDescription = null,
-                        tint = if (tasks.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) else StatusSuccess,
+                        tint = if (currentCategoryTasks.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) else StatusSuccess,
                         modifier = Modifier.size(56.dp)
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = if (tasks.isEmpty()) "目前尚無作業或測驗" else "太棒了！本分類目前沒有待辦事項",
+                        text = if (currentCategoryTasks.isEmpty()) "目前尚無$categoryName" else "太棒了！本分類目前沒有待辦事項",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = if (tasks.isEmpty()) {
-                            if (isLoggedIn) "已登入學生帳號，請點擊下方按鈕同步臺東大學最新作業與測驗。"
-                            else "尚未登入學生帳號，請先登入以載入作業與測驗清單。"
+                        text = if (currentCategoryTasks.isEmpty()) {
+                            if (isLoggedIn) "已登入學生帳號，請點擊下方按鈕同步臺東大學最新${categoryName}。"
+                            else "尚未登入學生帳號，請先登入以載入${categoryName}清單。"
                         } else {
-                            "所選類別下目前無作業或測驗項目。"
+                            "所選類別下目前無${categoryName}項目。"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
-                    if (tasks.isEmpty()) {
+                    if (currentCategoryTasks.isEmpty()) {
                         Spacer(modifier = Modifier.height(20.dp))
                         if (isLoggedIn) {
                             Button(
@@ -176,7 +234,7 @@ fun TaskScreen(
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("立即同步作業", fontWeight = FontWeight.Bold)
+                                Text("立即同步", fontWeight = FontWeight.Bold)
                             }
                         } else {
                             Button(
@@ -185,7 +243,7 @@ fun TaskScreen(
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("登入帳號載入作業", fontWeight = FontWeight.Bold)
+                                Text("登入帳號載入", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -196,7 +254,7 @@ fun TaskScreen(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(filteredTasks) { task ->
+                items(filteredTasks, key = { it.id }) { task ->
                     TaskCard(
                         task = task,
                         isDark = isDark,
@@ -214,9 +272,26 @@ fun TaskScreen(
             task = task,
             isDark = isDark,
             onOpenWeb = {
-                val path = if (task.type == TaskType.ASSIGNMENT) "/app/homework/" else "/app/exam/"
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("${NttuHttpClient.BASE_URL}$path"))
-                context.startActivity(intent)
+                val path = when (task.type) {
+                    TaskType.ASSIGNMENT -> "homeworkList"
+                    TaskType.QUESTIONNAIRE -> "questionnaireList"
+                    else -> "examList"
+                }
+                val targetUrl = when {
+                    task.url.isNotBlank() -> task.url
+                    task.courseId.isNotBlank() && !task.courseId.startsWith("c_") -> {
+                        "${NttuHttpClient.BASE_URL}/course/$path/${task.courseId}"
+                    }
+                    else -> {
+                        "${NttuHttpClient.BASE_URL}/course"
+                    }
+                }
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
+                    context.startActivity(intent)
+                } catch (_: Exception) {
+                    Toast.makeText(context, "無法開啟瀏覽器", Toast.LENGTH_SHORT).show()
+                }
             },
             onDismiss = { selectedTaskForDetail = null }
         )
@@ -230,6 +305,7 @@ private fun TaskCard(
     onClick: () -> Unit
 ) {
     val statusColor = when (task.status) {
+        TaskStatus.OVERDUE -> if (isDark) Color(0xFFEF4444) else MaterialTheme.colorScheme.error
         TaskStatus.URGENT -> if (isDark) Color(0xFFF87171) else StatusUrgent
         TaskStatus.WARNING -> if (isDark) Color(0xFFFBBF24) else StatusWarning
         TaskStatus.COMPLETED -> if (isDark) Color(0xFF34D399) else StatusSuccess
@@ -237,6 +313,7 @@ private fun TaskCard(
     }
 
     val statusLabel = when (task.status) {
+        TaskStatus.OVERDUE -> "已逾期"
         TaskStatus.URGENT -> if (task.remainingHours > 0) "倒數 ${task.remainingHours} 小時" else "即將截止"
         TaskStatus.WARNING -> if (task.remainingHours > 0) "剩 ${task.remainingHours / 24} 天截止" else "注意截止"
         TaskStatus.COMPLETED -> task.score?.let { "已評分 · $it" } ?: "已繳交"
@@ -265,7 +342,11 @@ private fun TaskCard(
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
-                            text = if (task.type == TaskType.ASSIGNMENT) "作業" else "測驗",
+                            text = when (task.type) {
+                                TaskType.ASSIGNMENT -> "作業"
+                                TaskType.QUESTIONNAIRE -> "問卷"
+                                else -> "測驗"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -362,7 +443,11 @@ private fun TaskDetailDialog(
     onOpenWeb: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val typeName = if (task.type == TaskType.ASSIGNMENT) "作業" else "測驗"
+    val typeName = when (task.type) {
+        TaskType.ASSIGNMENT -> "作業"
+        TaskType.QUESTIONNAIRE -> "問卷"
+        else -> "測驗"
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -411,18 +496,33 @@ private fun TaskDetailDialog(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val statusText = when {
+                        task.isSubmitted -> "已繳交"
+                        task.status == TaskStatus.OVERDUE -> "未繳交 (已逾期)"
+                        else -> "未繳交"
+                    }
+                    val statusColor = when {
+                        task.isSubmitted -> Color(0xFF2E7D32)
+                        task.status == TaskStatus.OVERDUE -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.error
+                    }
+                    val statusIcon = when {
+                        task.isSubmitted -> Icons.Default.CheckCircle
+                        task.status == TaskStatus.OVERDUE -> Icons.Default.EventBusy
+                        else -> Icons.AutoMirrored.Filled.Assignment
+                    }
                     Icon(
-                        imageVector = if (task.isSubmitted) Icons.Default.CheckCircle else Icons.AutoMirrored.Filled.Assignment,
+                        imageVector = statusIcon,
                         contentDescription = null,
-                        tint = if (task.isSubmitted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
+                        tint = statusColor,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "繳交狀態：${if (task.isSubmitted) "已繳交" else "未繳交"}",
+                        text = "繳交狀態：$statusText",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
-                        color = if (task.isSubmitted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
+                        color = statusColor
                     )
                 }
 

@@ -350,19 +350,22 @@ fun MainScaffold(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.clickable {
-                            versionTapCount++
-                            if (versionTapCount in 3..6) {
-                                Toast.makeText(
-                                    context,
-                                    "再連續點擊 ${7 - versionTapCount} 次以解鎖管理核銷驗證台",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            } else if (versionTapCount >= 7) {
-                                versionTapCount = 0
-                                showAboutDialog = false
-                                showAdminPinDialog = true
-                                adminPinInput = ""
-                                adminPinError = false
+                            // 點名核銷功能於 v1.2.0 起暫時僅開放 debug 版本使用
+                            if (BuildConfig.DEBUG) {
+                                versionTapCount++
+                                if (versionTapCount in 3..6) {
+                                    Toast.makeText(
+                                        context,
+                                        "再連續點擊 ${7 - versionTapCount} 次以解鎖管理核銷驗證台",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else if (versionTapCount >= 7) {
+                                    versionTapCount = 0
+                                    showAboutDialog = false
+                                    showAdminPinDialog = true
+                                    adminPinInput = ""
+                                    adminPinError = false
+                                }
                             }
                         }
                     )

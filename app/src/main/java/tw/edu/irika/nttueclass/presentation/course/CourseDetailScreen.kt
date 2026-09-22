@@ -86,7 +86,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -137,7 +137,7 @@ fun CourseDetailScreen(
     val scope = rememberCoroutineScope()
 
     // 訂閱課程清單，並依 courseId 找到當前課程
-    val courses by repository.getCoursesStream().collectAsState(initial = emptyList())
+    val courses by repository.getCoursesStream().collectAsStateWithLifecycle(initialValue = emptyList())
     val course = remember(courses, courseId) {
         courses.firstOrNull { it.id == courseId } ?: Course(
             id = courseId,
@@ -151,10 +151,10 @@ fun CourseDetailScreen(
     }
 
     // 訂閱教材資料流
-    val materials by repository.getMaterialsStream(courseId).collectAsState(initial = emptyList())
-    val announcements by repository.getAnnouncementsStream().collectAsState(initial = emptyList())
-    val tasks by repository.getTasksStream().collectAsState(initial = emptyList())
-    val timetableSlots by repository.getTimetableStream().collectAsState(initial = emptyList())
+    val materials by repository.getMaterialsStream(courseId).collectAsStateWithLifecycle(initialValue = emptyList())
+    val announcements by repository.getAnnouncementsStream().collectAsStateWithLifecycle(initialValue = emptyList())
+    val tasks by repository.getTasksStream().collectAsStateWithLifecycle(initialValue = emptyList())
+    val timetableSlots by repository.getTimetableStream().collectAsStateWithLifecycle(initialValue = emptyList())
 
     // 篩選與當前課程相關的公告、作業與課表節次
     val courseAnnouncements = remember(announcements, course) {
@@ -186,8 +186,9 @@ fun CourseDetailScreen(
     LaunchedEffect(courseId, isLoggedIn) {
         if (isLoggedIn && materials.isEmpty()) {
             isSyncingMaterials = true
-            scope.launch {
+            try {
                 repository.syncCourseMaterials(courseId)
+            } finally {
                 isSyncingMaterials = false
             }
         }

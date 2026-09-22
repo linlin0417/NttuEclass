@@ -14,6 +14,8 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import java.util.concurrent.Executors
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -295,6 +297,17 @@ fun HiddenVerifierScreen(
                     ) {
                         if (hasCameraPermission) {
                             // CameraX 預覽窗
+                            var cameraProviderRef by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+                            val lifecycleOwner = LocalLifecycleOwner.current
+                            val analyzerExecutor = remember { Executors.newSingleThreadExecutor() }
+                            
+                            DisposableEffect(Unit) {
+                                onDispose {
+                                    cameraProviderRef?.unbindAll()
+                                    analyzerExecutor.shutdown()
+                                }
+                            }
+
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -309,6 +322,7 @@ fun HiddenVerifierScreen(
                                         val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                                         cameraProviderFuture.addListener({
                                             val cameraProvider = cameraProviderFuture.get()
+                                            cameraProviderRef = cameraProvider
                                             val preview = Preview.Builder().build().also {
                                                 it.setSurfaceProvider(previewView.surfaceProvider)
                                             }
@@ -319,7 +333,7 @@ fun HiddenVerifierScreen(
                                                 .build()
 
                                             val reader = MultiFormatReader()
-                                            imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(ctx)) { imageProxy ->
+                                            imageAnalysis.setAnalyzer(analyzerExecutor) { imageProxy ->
                                                 if (isScanning) {
                                                     try {
                                                         val plane = imageProxy.planes[0]
@@ -357,7 +371,7 @@ fun HiddenVerifierScreen(
                                             try {
                                                 cameraProvider.unbindAll()
                                                 cameraProvider.bindToLifecycle(
-                                                    context as androidx.lifecycle.LifecycleOwner,
+                                                    lifecycleOwner,
                                                     CameraSelector.DEFAULT_BACK_CAMERA,
                                                     preview,
                                                     imageAnalysis

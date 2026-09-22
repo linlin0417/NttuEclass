@@ -34,9 +34,13 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,10 +74,10 @@ fun DashboardScreen(
     modifier: Modifier = Modifier
 ) {
     // 訂閱真實資料流 (無任何寫死假資料)
-    val timetableSlots by repository.getTimetableStream().collectAsState(initial = emptyList())
-    val courses by repository.getCoursesStream().collectAsState(initial = emptyList())
-    val tasks by repository.getTasksStream().collectAsState(initial = emptyList())
-    val announcements by repository.getAnnouncementsStream().collectAsState(initial = emptyList())
+    val timetableSlots by repository.getTimetableStream().collectAsStateWithLifecycle(initialValue = emptyList())
+    val courses by repository.getCoursesStream().collectAsStateWithLifecycle(initialValue = emptyList())
+    val tasks by repository.getTasksStream().collectAsStateWithLifecycle(initialValue = emptyList())
+    val announcements by repository.getAnnouncementsStream().collectAsStateWithLifecycle(initialValue = emptyList())
 
     // 計算真實當前日期、星期與學期
     val now = remember { LocalDate.now() }
@@ -87,7 +91,7 @@ fun DashboardScreen(
     val todaySlots = remember(timetableSlots, todayWeekday) {
         timetableSlots.filter { it.dayOfWeek == todayWeekday }.sortedBy { it.periodNumber }
     }
-    val currentLocalTime = remember { LocalTime.now() }
+    var currentLocalTime by remember { mutableStateOf(LocalTime.now()) }
     val nextSlot = remember(todaySlots, currentLocalTime) {
         todaySlots.firstOrNull { slot ->
             val period = StandardPeriods.getByPeriodNumber(slot.periodNumber)
@@ -98,6 +102,13 @@ fun DashboardScreen(
                 val endTime = LocalTime.of(endHour, endMinute)
                 currentLocalTime.isBefore(endTime)
             } else true
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(60_000L)
+            currentLocalTime = LocalTime.now()
         }
     }
 

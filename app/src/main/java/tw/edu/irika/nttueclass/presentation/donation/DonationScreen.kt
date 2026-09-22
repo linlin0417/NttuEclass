@@ -39,9 +39,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,9 +66,15 @@ fun DonationScreen(
     val activity = context as? Activity
     val billingManager = remember { BillingManager(context) }
 
-    val isConnected by billingManager.isConnected.collectAsState()
-    val donationData by billingManager.donationData.collectAsState()
-    val statusMessage by billingManager.statusMessage.collectAsState()
+    DisposableEffect(billingManager) {
+        onDispose {
+            billingManager.endConnection()
+        }
+    }
+
+    val isConnected by billingManager.isConnected.collectAsStateWithLifecycle()
+    val donationData by billingManager.donationData.collectAsStateWithLifecycle()
+    val statusMessage by billingManager.statusMessage.collectAsStateWithLifecycle()
 
     LazyColumn(
         modifier = modifier

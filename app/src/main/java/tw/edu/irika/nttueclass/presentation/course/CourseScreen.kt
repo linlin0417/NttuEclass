@@ -62,7 +62,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -99,15 +101,15 @@ fun CourseScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: 本學期課程, 1: 最新公告
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) } // 0: 本學期課程, 1: 最新公告
     var showAddCourseDialog by remember { mutableStateOf(false) }
 
     // 從真實 Room 資料庫訂閱所有相關資料流
-    val courses by repository.getCoursesStream().collectAsState(initial = emptyList())
-    val announcements by repository.getAnnouncementsStream().collectAsState(initial = emptyList())
-    val tasks by repository.getTasksStream().collectAsState(initial = emptyList())
-    val timetableSlots by repository.getTimetableStream().collectAsState(initial = emptyList())
+    val courses by repository.getCoursesStream().collectAsStateWithLifecycle(initialValue = emptyList())
+    val announcements by repository.getAnnouncementsStream().collectAsStateWithLifecycle(initialValue = emptyList())
+    val tasks by repository.getTasksStream().collectAsStateWithLifecycle(initialValue = emptyList())
+    val timetableSlots by repository.getTimetableStream().collectAsStateWithLifecycle(initialValue = emptyList())
 
     // 詳情彈窗狀態
     var selectedCourseForDetail by remember { mutableStateOf<Course?>(null) }
@@ -243,7 +245,7 @@ fun CourseScreen(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(filteredCourses) { course ->
+                        items(filteredCourses, key = { it.id }) { course ->
                             CourseCard(
                                 course = course,
                                 onClick = {
@@ -334,7 +336,7 @@ fun CourseScreen(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(filteredAnnouncements) { announcement ->
+                        items(filteredAnnouncements, key = { it.id }) { announcement ->
                             AnnouncementCard(
                                 announcement = announcement,
                                 onClick = { selectedAnnouncementForDetail = announcement }

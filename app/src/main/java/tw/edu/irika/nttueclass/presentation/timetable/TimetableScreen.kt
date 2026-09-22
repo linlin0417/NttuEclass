@@ -7,7 +7,6 @@ import tw.edu.irika.nttueclass.domain.util.ClassroomHelper
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,11 +58,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -86,20 +88,20 @@ fun TimetableScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val isDark = isSystemInDarkTheme()
+    val isDark = !MaterialTheme.colorScheme.background.luminance().let { it > 0.5f }
     val currentDayOfWeek = remember {
         val day = java.time.LocalDate.now().dayOfWeek.value // 1=Mon .. 7=Sun
         day.coerceIn(1, 5)
     }
     var selectedDay by remember { mutableIntStateOf(currentDayOfWeek) }
-    var isWeekView by remember { mutableStateOf(false) }
+    var isWeekView by rememberSaveable { mutableStateOf(false) }
     var selectedSlotForDetail by remember { mutableStateOf<TimetableSlot?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var editingSlot by remember { mutableStateOf<TimetableSlot?>(null) }
 
     // 從真實 Room 資料庫訂閱課表與課程資料流 (無任何寫死假資料)
-    val slots by repository.getTimetableStream().collectAsState(initial = emptyList())
-    val courses by repository.getCoursesStream().collectAsState(initial = emptyList())
+    val slots by repository.getTimetableStream().collectAsStateWithLifecycle(initialValue = emptyList())
+    val courses by repository.getCoursesStream().collectAsStateWithLifecycle(initialValue = emptyList())
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(

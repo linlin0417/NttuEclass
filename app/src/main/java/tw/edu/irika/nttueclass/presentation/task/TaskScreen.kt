@@ -3,7 +3,6 @@ package tw.edu.irika.nttueclass.presentation.task
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,10 +47,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -74,13 +76,13 @@ fun TaskScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val isDark = isSystemInDarkTheme()
-    var selectedCategory by remember { mutableIntStateOf(0) } // 0: 作業, 1: 測驗, 2: 問卷
-    var selectedFilter by remember { mutableIntStateOf(0) } // 0: 全部, 1: 待繳交, 2: 即將截止, 3: 已逾期, 4: 已完成
+    val isDark = !MaterialTheme.colorScheme.background.luminance().let { it > 0.5f }
+    var selectedCategory by rememberSaveable { mutableIntStateOf(0) } // 0: 作業, 1: 測驗, 2: 問卷
+    var selectedFilter by rememberSaveable { mutableIntStateOf(0) } // 0: 全部, 1: 待繳交, 2: 即快截止, 3: 已逾期, 4: 已完成
     var selectedTaskForDetail by remember { mutableStateOf<TaskItem?>(null) }
 
     // 從真實 Room 資料庫訂閱待辦與作業資料流
-    val tasks by repository.getTasksStream().collectAsState(initial = emptyList())
+    val tasks by repository.getTasksStream().collectAsStateWithLifecycle(initialValue = emptyList())
 
     val assignmentTasks = remember(tasks) { tasks.filter { it.type == TaskType.ASSIGNMENT } }
     val quizTasks = remember(tasks) { tasks.filter { it.type == TaskType.QUIZ || it.type == TaskType.EXAM } }

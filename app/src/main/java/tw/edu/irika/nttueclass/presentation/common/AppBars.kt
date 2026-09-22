@@ -20,6 +20,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import tw.edu.irika.nttueclass.presentation.navigation.Screen
@@ -47,6 +54,8 @@ fun AppTopBar(
             )
         },
         actions = {
+            var showMenu by remember { mutableStateOf(false) }
+
             // 登入狀態 / 登入對話框入口
             IconButton(onClick = onOpenLogin) {
                 Icon(
@@ -71,26 +80,55 @@ fun AppTopBar(
                     contentDescription = "NttuEPass"
                 )
             }
-            // 捐款/支持
-            IconButton(onClick = onOpenDonation) {
-                Icon(
-                    imageVector = Icons.Default.Favorite,
-                    contentDescription = "贊助支持",
-                    tint = if (currentScreen == Screen.Donation) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                )
+
+            // 更多選項 (Overflow menu)
+            IconButton(onClick = { showMenu = !showMenu }) {
+                Icon(imageVector = Icons.Default.MoreVert, contentDescription = "更多選項")
             }
-            // 雙主題切換
-            IconButton(onClick = onToggleTheme) {
-                Icon(
-                    imageVector = if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
-                    contentDescription = "切換主題"
+
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("贊助支持") },
+                    onClick = {
+                        showMenu = false
+                        onOpenDonation()
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = null,
+                            tint = if (currentScreen == Screen.Donation) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 )
-            }
-            // 關於/設定
-            IconButton(onClick = onOpenAbout) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = "關於與版本資訊"
+                DropdownMenuItem(
+                    text = { Text(if (isDarkTheme) "切換為淺色模式" else "切換為深色模式") },
+                    onClick = {
+                        showMenu = false
+                        onToggleTheme()
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
+                            contentDescription = null
+                        )
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("關於與版本資訊") },
+                    onClick = {
+                        showMenu = false
+                        onOpenAbout()
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null
+                        )
+                    }
                 )
             }
         },

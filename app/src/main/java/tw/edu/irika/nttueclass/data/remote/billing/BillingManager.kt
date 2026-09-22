@@ -369,4 +369,8 @@ class BillingManager(
         storage.saveDonationInteger(encoded)
         _donationData.value = data
     }
+
+    fun endConnection() {
+        billingClient.endConnection()
+    }
 }

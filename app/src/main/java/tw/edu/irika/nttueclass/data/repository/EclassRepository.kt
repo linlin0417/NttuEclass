@@ -406,28 +406,98 @@ class EclassRepository(context: Context) {
             .trim()
     }
 
-    private suspend fun syncAnnouncements(): Boolean {
-        val urls = listOf(
+    private suspend fun syncAnnouncements(): Boolean = withContext(Dispatchers.IO) {
+        var anySuccess = false
+
+        // ── 第一階段：逐課程並行抓取各課程公告 ──
+        val courses = database.courseDao().getAllCoursesList()
+        val validCourses = courses.filter { it.id.isNotBlank() && !it.id.startsWith("c_") && it.id.all { ch -> ch.isDigit() } }
+
+        if (validCourses.isNotEmpty()) {
+            val semaphore = Semaphore(3)
+            val perCourseResults = coroutineScope {
+                validCourses.map { course ->
+                    async {
+                        semaphore.withPermit {
+                            runCatching {
+                                val url = "${NttuHttpClient.BASE_URL}/course/bulletin/${course.id}"
+                                val html = fetchHtmlWithAuth(url)
+                                val announcements = AnnouncementHtmlParser.parse(
+                                    html,
+                                    defaultCourseId = course.id,
+                                    defaultCourseName = course.name
+                                )
+                                if (announcements.isNotEmpty()) {
+                                    database.announcementDao().deleteByCourseId(course.id)
+                                    database.announcementDao().insertAll(announcements.map { AnnouncementEntity.fromDomain(it) })
+                                }
+                                announcements
+                            }.getOrDefault(emptyList())
+                        }
+                    }
+                }.awaitAll()
+            }
+            if (perCourseResults.any { it.isNotEmpty() }) {
+                anySuccess = true
+            }
+        }
+
+        // ── 第二階段：全站公告總覽作為補充（擷取未歸屬特定課程的公告）──
+        val globalUrls = listOf(
             "${NttuHttpClient.BASE_URL}/dashboard/latestBulletin",
             "${NttuHttpClient.BASE_URL}/bulletin",
             "${NttuHttpClient.BASE_URL}/app/bulletin/"
         )
-        for (url in urls) {
+        for (url in globalUrls) {
             try {
                 val html = fetchHtmlWithAuth(url)
                 if (html.isBlank()) continue
-                val announcements = AnnouncementHtmlParser.parse(html)
-                if (announcements.isNotEmpty()) {
-                    database.announcementDao().deleteAll()
-                    database.announcementDao().insertAll(announcements.map { AnnouncementEntity.fromDomain(it) })
-                    return true
+                val globalAnnouncements = AnnouncementHtmlParser.parse(html)
+                if (globalAnnouncements.isNotEmpty()) {
+                    // UPSERT：利用 OnConflictStrategy.REPLACE 合併，不先 deleteAll
+                    database.announcementDao().insertAll(globalAnnouncements.map { AnnouncementEntity.fromDomain(it) })
+                    anySuccess = true
+                    break
                 }
             } catch (e: SessionExpiredException) {
                 throw e
             } catch (_: Exception) {
             }
         }
-        return false
+
+        anySuccess
+    }
+
+    /**
+     * 單一課程隨選即時同步公告（供 CourseDetailScreen 獨立呼叫）
+     */
+    suspend fun syncCourseAnnouncements(courseId: String, courseName: String = ""): Result<List<Announcement>> = withContext(Dispatchers.IO) {
+        if (courseId.isBlank() || courseId.startsWith("c_") || !courseId.all { it.isDigit() }) {
+            return@withContext Result.success(emptyList())
+        }
+
+        try {
+            val resolvedCourseName = courseName.ifBlank {
+                database.courseDao().getCourseById(courseId)?.name.orEmpty()
+            }
+
+            val url = "${NttuHttpClient.BASE_URL}/course/bulletin/$courseId"
+            val html = fetchHtmlWithAuth(url)
+            val announcements = AnnouncementHtmlParser.parse(
+                html,
+                defaultCourseId = courseId,
+                defaultCourseName = resolvedCourseName
+            )
+
+            if (announcements.isNotEmpty()) {
+                database.announcementDao().deleteByCourseId(courseId)
+                database.announcementDao().insertAll(announcements.map { AnnouncementEntity.fromDomain(it) })
+                updateCourseCounters()
+            }
+            Result.success(announcements)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     /**
@@ -631,6 +701,7 @@ class EclassRepository(context: Context) {
     suspend fun syncCourseMaterials(courseId: String): Result<List<CourseMaterial>> = withContext(Dispatchers.IO) {
         try {
             val urls = listOf(
+                "${NttuHttpClient.BASE_URL}/course/material/$courseId",
                 "${NttuHttpClient.BASE_URL}/api/courses/$courseId/activities?sub_course_id=0",
                 "${NttuHttpClient.BASE_URL}/api/courses/$courseId/syllabus",
                 "${NttuHttpClient.BASE_URL}/course/$courseId/content",

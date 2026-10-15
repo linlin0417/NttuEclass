@@ -65,9 +65,12 @@ object TaskHtmlParser {
                     val fullUrl = normalizeUrl(rawHref)
 
                     val id = when {
-                        rawHref.contains("id=") -> rawHref.substringAfter("id=").substringBefore("&")
-                        rawHref.contains("=") -> rawHref.substringAfterLast("=")
-                        rawHref.isNotBlank() && !rawHref.startsWith("javascript") -> rawHref.trim('/').substringAfterLast("/")
+                        row.attr("data-id").isNotBlank() -> row.attr("data-id").trim()
+                        row.id().isNotBlank() -> row.id().trim()
+                        titleEl.attr("data-id").isNotBlank() -> titleEl.attr("data-id").trim()
+                        rawHref.contains("id=") -> rawHref.substringAfter("id=").substringBefore("&").trim()
+                        rawHref.contains("=") -> rawHref.substringAfterLast("=").substringBefore("&").trim()
+                        rawHref.isNotBlank() && !rawHref.startsWith("javascript") -> rawHref.trim('/').substringAfterLast("/").trim()
                         else -> "t_${title.hashCode()}"
                     }.ifBlank { "t_${title.hashCode()}" }
 
@@ -131,9 +134,12 @@ object TaskHtmlParser {
                     val fullUrl = normalizeUrl(rawHref)
 
                     val id = when {
-                        rawHref.contains("id=") -> rawHref.substringAfter("id=").substringBefore("&")
-                        rawHref.contains("=") -> rawHref.substringAfterLast("=")
-                        rawHref.isNotBlank() && !rawHref.startsWith("javascript") -> rawHref.trim('/').substringAfterLast("/")
+                        card.attr("data-id").isNotBlank() -> card.attr("data-id").trim()
+                        card.id().isNotBlank() -> card.id().trim()
+                        titleEl.attr("data-id").isNotBlank() -> titleEl.attr("data-id").trim()
+                        rawHref.contains("id=") -> rawHref.substringAfter("id=").substringBefore("&").trim()
+                        rawHref.contains("=") -> rawHref.substringAfterLast("=").substringBefore("&").trim()
+                        rawHref.isNotBlank() && !rawHref.startsWith("javascript") -> rawHref.trim('/').substringAfterLast("/").trim()
                         else -> "t_${title.hashCode()}"
                     }.ifBlank { "t_${title.hashCode()}" }
 

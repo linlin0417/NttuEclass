@@ -86,8 +86,27 @@ class NttuCryptoTest {
         assertFalse(decoded.isLifetime)
     }
 
+    // Phase 5: 驗證客戶端離線解密能力已徹底移除（無私鑰必定被阻擋）
+    @Test
+    fun testOfflineDecryptionWithoutPrivateKeyIsBlocked() {
+        val cipherBase64 = NttuCryptoManager.encryptPayload(
+            studentId = "11411188",
+            specialToken = "a".repeat(128),
+            donationInteger = 123456789L
+        )
+        val decryptResult = NttuCryptoManager.decryptPayload(cipherBase64)
+        assertTrue("Decryption without private key must fail", decryptResult.isFailure)
+        assertTrue(decryptResult.exceptionOrNull() is UnsupportedOperationException)
+    }
+
+    // Phase 5: 驗證使用顯式外部核銷私鑰可進行配對解密
     @Test
     fun testEcc256EncryptionAndDecryptionRoundTrip() {
+        val kpg = java.security.KeyPairGenerator.getInstance("EC").apply {
+            initialize(java.security.spec.ECGenParameterSpec("secp256r1"))
+        }
+        val testKeyPair = kpg.generateKeyPair()
+
         val studentId = "11411188"
         val customToken = "a".repeat(128)
         val donationInt = 123456789L
@@ -97,14 +116,15 @@ class NttuCryptoTest {
             studentId = studentId,
             specialToken = customToken,
             donationInteger = donationInt,
-            timestamp = timestamp
+            timestamp = timestamp,
+            pubKey = testKeyPair.public
         )
 
         assertNotNull(cipherBase64)
         assertTrue(cipherBase64.isNotEmpty())
 
-        val decryptResult = NttuCryptoManager.decryptPayload(cipherBase64)
-        assertTrue("Decryption should succeed", decryptResult.isSuccess)
+        val decryptResult = NttuCryptoManager.decryptPayload(cipherBase64, privKey = testKeyPair.private)
+        assertTrue("Decryption should succeed with explicit private key", decryptResult.isSuccess)
 
         val payload = decryptResult.getOrThrow()
         assertEquals(studentId, payload.studentId)
@@ -114,16 +134,23 @@ class NttuCryptoTest {
         assertFalse(payload.is1D)
     }
 
+    // Phase 5: 驗證預設佔位符 Token 解密
     @Test
     fun testEcc256DecryptionWithPlaceholderToken() {
+        val kpg = java.security.KeyPairGenerator.getInstance("EC").apply {
+            initialize(java.security.spec.ECGenParameterSpec("secp256r1"))
+        }
+        val testKeyPair = kpg.generateKeyPair()
+
         val studentId = "11411188"
         val cipherBase64 = NttuCryptoManager.encryptPayload(
             studentId = studentId,
             specialToken = null, // empty -> placeholder
-            donationInteger = 0L
+            donationInteger = 0L,
+            pubKey = testKeyPair.public
         )
 
-        val decryptResult = NttuCryptoManager.decryptPayload(cipherBase64)
+        val decryptResult = NttuCryptoManager.decryptPayload(cipherBase64, privKey = testKeyPair.private)
         assertTrue(decryptResult.isSuccess)
 
         val payload = decryptResult.getOrThrow()

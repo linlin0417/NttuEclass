@@ -1,8 +1,6 @@
 package tw.edu.irika.nttueclass.presentation.auth
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,7 +20,6 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,42 +32,45 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
-import tw.edu.irika.nttueclass.data.remote.auth.AuthLockoutManager
-import tw.edu.irika.nttueclass.data.remote.auth.AuthManager
-import tw.edu.irika.nttueclass.data.remote.auth.AuthResult
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import tw.edu.irika.nttueclass.ui.theme.StatusUrgent
 import tw.edu.irika.nttueclass.ui.theme.StatusWarning
 
 @Composable
 fun LoginDialog(
-    authManager: AuthManager,
+    authViewModel: AuthViewModel,
     onLoginSuccess: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    var studentId by remember { mutableStateOf(authManager.secureStorage.getStudentId() ?: "") }
+    val uiState by authViewModel.uiState.collectAsStateWithLifecycle()
+    val successState = uiState as? AuthUiState.Success
+
+    val initialStudentId = successState?.studentId.orEmpty()
+    var studentId by remember(initialStudentId) { mutableStateOf(initialStudentId) }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    val isLocked = authManager.lockoutManager.isLockedOut()
-    val remainingAttempts = authManager.lockoutManager.getRemainingAttempts()
-    val shouldWarn = authManager.lockoutManager.shouldWarnUser()
+    val isLocked = successState?.isLockedOut ?: false
+    val remainingAttempts = successState?.remainingAttempts ?: 5
+    val shouldWarn = successState?.shouldWarn ?: false
+    val isLoading = successState?.isLoggingIn ?: false
+    val errorMessage = successState?.loginErrorMessage
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (!isLoading) {
+                authViewModel.clearErrorMessage()
+                onDismiss()
+            }
+        },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -198,32 +198,8 @@ fun LoginDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (studentId.isBlank() || password.isBlank()) {
-                        errorMessage = "學號與密碼不能為空"
-                        return@Button
-                    }
-                    isLoading = true
-                    errorMessage = null
-                    scope.launch {
-                        val result = authManager.login(studentId, password)
-                        isLoading = false
-                        when (result) {
-                            is AuthResult.Success -> {
-                                onLoginSuccess(result.studentId)
-                            }
-                            is AuthResult.InvalidCredentials -> {
-                                errorMessage = result.message
-                            }
-                            is AuthResult.LockedOut -> {
-                                errorMessage = result.message
-                            }
-                            is AuthResult.NetworkError -> {
-                                errorMessage = result.message
-                            }
-                            is AuthResult.EmptyInput -> {
-                                errorMessage = result.message
-                            }
-                        }
+                    authViewModel.login(studentId, password) { loggedInId ->
+                        onLoginSuccess(loggedInId)
                     }
                 },
                 enabled = !isLoading && !isLocked && studentId.isNotBlank() && password.isNotBlank(),
@@ -242,7 +218,10 @@ fun LoginDialog(
         },
         dismissButton = {
             TextButton(
-                onClick = onDismiss,
+                onClick = {
+                    authViewModel.clearErrorMessage()
+                    onDismiss()
+                },
                 enabled = !isLoading
             ) {
                 Text(text = "離線 / 稍後")

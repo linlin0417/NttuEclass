@@ -1,12 +1,18 @@
 package tw.edu.irika.nttueclass.data.local.db.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
  * 課程與活動點名簽到歷史紀錄實體
  */
-@Entity(tableName = "roll_call_records")
+@Entity(
+    tableName = "roll_call_records",
+    indices = [
+        Index(value = ["sessionId", "studentId"])
+    ]
+)
 data class RollCallRecordEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0L,

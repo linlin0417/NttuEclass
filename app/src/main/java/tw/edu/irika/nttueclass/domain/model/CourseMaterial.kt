@@ -45,17 +45,9 @@ data class CourseMaterial(
     val uploadDate: String = "",
     val localFilePath: String? = null,
     val downloadStatus: MaterialDownloadStatus = MaterialDownloadStatus.NOT_DOWNLOADED,
-    val downloadProgress: Float = 0f // 0.0f ~ 1.0f
+    val downloadProgress: Float = 0f, // 0.0f ~ 1.0f
+    val isFilePresentOnDisk: Boolean = !localFilePath.isNullOrBlank() && checkFilePresent(localFilePath)
 ) {
-    /**
-     * 檢查本機檔案是否確實存在
-     */
-    val isFilePresentOnDisk: Boolean
-        get() {
-            if (localFilePath.isNullOrBlank()) return false
-            val file = java.io.File(localFilePath)
-            return file.exists() && file.length() > 0
-        }
 
     /**
      * 推導 MIME Type，用於 Intent.ACTION_VIEW 開啟檔案
@@ -89,6 +81,12 @@ data class CourseMaterial(
         }
 
     companion object {
+        fun checkFilePresent(path: String?): Boolean {
+            if (path.isNullOrBlank()) return false
+            val file = java.io.File(path)
+            return file.exists() && file.length() > 0
+        }
+
         fun formatFileSize(bytes: Long): String {
             if (bytes <= 0) return ""
             val kb = bytes / 1024.0

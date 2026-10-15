@@ -1,13 +1,10 @@
 package tw.edu.irika.nttueclass.data.remote.client
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.os.Environment
-import android.widget.Toast
-import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import tw.edu.irika.nttueclass.domain.model.CourseMaterial
 import java.io.File
@@ -26,7 +23,8 @@ object CourseMaterialDownloader {
     suspend fun download(
         context: Context,
         material: CourseMaterial,
-        onProgress: (Float) -> Unit
+        onProgress: (Float) -> Unit,
+        client: OkHttpClient = NttuHttpClient.client
     ): Result<File> = withContext(Dispatchers.IO) {
         try {
             if (material.downloadUrl.isBlank()) {
@@ -37,7 +35,7 @@ object CourseMaterialDownloader {
                 .url(material.downloadUrl)
                 .build()
 
-            val response = NttuHttpClient.client.newCall(request).execute()
+            val response = client.newCall(request).execute()
             if (!response.isSuccessful) {
                 return@withContext Result.failure(IOException("下載失敗，伺服器回傳錯誤狀態碼: ${response.code}"))
             }
@@ -88,43 +86,20 @@ object CourseMaterialDownloader {
     }
 
     /**
-     * 喚起外部應用程式 (如 Adobe Acrobat, Office, 系統瀏覽器等) 開啟已下載之教材
+     * 檢驗並取得本機已下載之教材檔案，供 Presentation 層開啟或處理
      */
-    fun openFile(context: Context, material: CourseMaterial): Boolean {
+    fun getDownloadedFile(material: CourseMaterial): Result<File> {
         val path = material.localFilePath
         if (path.isNullOrBlank()) {
-            Toast.makeText(context, "檔案尚未下載", Toast.LENGTH_SHORT).show()
-            return false
+            return Result.failure(IllegalStateException("檔案尚未下載"))
         }
 
         val file = File(path)
         if (!file.exists() || file.length() == 0L) {
-            Toast.makeText(context, "本機檔案遺失或已損毀，請重新下載", Toast.LENGTH_SHORT).show()
-            return false
+            return Result.failure(IllegalStateException("本機檔案遺失或已損毀，請重新下載"))
         }
 
-        return try {
-            val contentUri: Uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
-            )
-
-            val mimeType = material.mimeType
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(contentUri, mimeType)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-
-            val chooser = Intent.createChooser(intent, "開啟教材：「${material.title}」")
-            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(chooser)
-            true
-        } catch (_: Exception) {
-            Toast.makeText(context, "未找到可開啟此格式 (${material.fileExtension}) 的應用程式", Toast.LENGTH_LONG).show()
-            false
-        }
+        return Result.success(file)
     }
 
     /**
@@ -136,12 +111,16 @@ object CourseMaterialDownloader {
         return if (file.exists()) file.delete() else false
     }
 
+    private val REGEX_FILENAME_UTF8 = Regex("""filename\*=UTF-8''([^;]+)""", RegexOption.IGNORE_CASE)
+    private val REGEX_FILENAME_NORMAL = Regex("""filename="?([^";]+)"?""", RegexOption.IGNORE_CASE)
+    private val REGEX_SANITIZE_FILENAME = Regex("""[\\/:*?"<>|\r\n\t]""")
+
     private fun resolveFileName(contentDisposition: String?, material: CourseMaterial): String {
         var name: String? = null
 
         if (!contentDisposition.isNullOrBlank()) {
             // 嘗試解析 filename*=UTF-8''...
-            val utf8Match = Regex("""filename\*=UTF-8''([^;]+)""", RegexOption.IGNORE_CASE).find(contentDisposition)
+            val utf8Match = REGEX_FILENAME_UTF8.find(contentDisposition)
             if (utf8Match != null) {
                 name = try {
                     URLDecoder.decode(utf8Match.groupValues[1].trim('"', '\''), StandardCharsets.UTF_8.name())
@@ -150,7 +129,7 @@ object CourseMaterialDownloader {
 
             // 嘗試解析 filename="..."
             if (name.isNullOrBlank()) {
-                val normalMatch = Regex("""filename="?([^";]+)"?""", RegexOption.IGNORE_CASE).find(contentDisposition)
+                val normalMatch = REGEX_FILENAME_NORMAL.find(contentDisposition)
                 if (normalMatch != null) {
                     name = normalMatch.groupValues[1].trim()
                 }
@@ -171,6 +150,6 @@ object CourseMaterialDownloader {
     }
 
     private fun sanitizeFileName(name: String): String {
-        return name.replace(Regex("""[\\/:*?"<>|\r\n\t]"""), "_").trim().ifBlank { "downloaded_file" }
+        return name.replace(REGEX_SANITIZE_FILENAME, "_").trim().ifBlank { "downloaded_file" }
     }
 }

@@ -73,236 +73,267 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
-import tw.edu.irika.nttueclass.data.repository.EclassRepository
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.hilt.navigation.compose.hiltViewModel
 import tw.edu.irika.nttueclass.domain.model.Period
 import tw.edu.irika.nttueclass.domain.model.StandardPeriods
 import tw.edu.irika.nttueclass.domain.model.TimetableSlot
 
 @Composable
 fun TimetableScreen(
-    repository: EclassRepository,
+    viewModel: TimetableViewModel = hiltViewModel(),
     isLoggedIn: Boolean,
     onOpenLogin: () -> Unit,
     onSync: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val isDark = !MaterialTheme.colorScheme.background.luminance().let { it > 0.5f }
-    val currentDayOfWeek = remember {
-        val day = java.time.LocalDate.now().dayOfWeek.value // 1=Mon .. 7=Sun
-        day.coerceIn(1, 5)
-    }
-    var selectedDay by remember { mutableIntStateOf(currentDayOfWeek) }
-    var isWeekView by rememberSaveable { mutableStateOf(false) }
-    var selectedSlotForDetail by remember { mutableStateOf<TimetableSlot?>(null) }
-    var showAddDialog by remember { mutableStateOf(false) }
-    var editingSlot by remember { mutableStateOf<TimetableSlot?>(null) }
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    // 從真實 Room 資料庫訂閱課表與課程資料流 (無任何寫死假資料)
-    val slots by repository.getTimetableStream().collectAsStateWithLifecycle(initialValue = emptyList())
-    val courses by repository.getCoursesStream().collectAsStateWithLifecycle(initialValue = emptyList())
-
-    Box(modifier = modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp)
-        ) {
-            // 頂部切換操作欄
-            TimetableControlsBar(
-                selectedDay = selectedDay,
-                onSelectDay = { selectedDay = it },
-                isWeekView = isWeekView,
-                onToggleView = { isWeekView = !isWeekView },
-                onBackToToday = { selectedDay = currentDayOfWeek }
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            if (slots.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
+    when (val state = uiState) {
+        is TimetableUiState.Loading -> {
+            Box(
+                modifier = modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+        is TimetableUiState.Error -> {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.EventBusy,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(64.dp)
-                        )
+                    Icon(
+                        imageVector = Icons.Default.EventBusy,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(64.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = state.message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center
+                    )
+                    if (state.canRetry) {
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "目前尚無課表資料",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = if (isLoggedIn) {
-                                "已驗證學生身分！您可直接點擊「手動新增課程節次」自訂排課，或嘗試從學校伺服器同步。"
-                            } else {
-                                "尚未登入學生帳號，請先登入以載入個人專屬課表。"
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(20.dp))
-                        if (isLoggedIn) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.fillMaxWidth(0.9f)
-                            ) {
-                                Button(
-                                    onClick = { showAddDialog = true },
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("手動新增課程節次", fontWeight = FontWeight.Bold)
-                                }
-                                OutlinedButton(
-                                    onClick = onSync,
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("立即同步學校課表", fontWeight = FontWeight.SemiBold)
-                                }
-                                TextButton(
-                                    onClick = {
-                                        try {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://infosys.nttu.edu.tw/"))
-                                            context.startActivity(intent)
-                                        } catch (_: Exception) {
-                                            Toast.makeText(context, "無法開啟瀏覽器", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                ) {
-                                    Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("開啟臺東大學校務系統 (查詢課表)", fontSize = 13.sp)
-                                }
-                            }
-                        } else {
-                            Button(
-                                onClick = onOpenLogin,
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("登入帳號載入課表", fontWeight = FontWeight.Bold)
-                            }
+                        Button(onClick = onSync) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("重試載入")
                         }
                     }
                 }
-            } else {
-                if (isWeekView) {
-                    WeekTableView(
-                        slots = slots,
-                        isDark = isDark,
-                        onSlotClick = { selectedSlotForDetail = it }
-                    )
-                } else {
-                    // 預先過濾當日課表，避免在 Composable 內重複計算
-                    val daySlots = remember(slots, selectedDay) {
-                        slots.filter { it.dayOfWeek == selectedDay }
-                    }
-                    DayTimelineView(
-                        dayOfWeek = selectedDay,
-                        slots = daySlots,
-                        courses = courses,
-                        isDark = isDark,
-                        onSlotClick = { selectedSlotForDetail = it }
-                    )
-                }
             }
         }
+        is TimetableUiState.Success -> {
+            val slots = state.slots
+            val courses = state.courses
+            val selectedDay = state.selectedDay
+            val isWeekView = state.isWeekView
+            val currentDayOfWeek = state.currentDayOfWeek
+            val selectedSlotForDetail = state.selectedSlotForDetail
+            val showAddDialog = state.showAddDialog
+            val editingSlot = state.editingSlot
 
-        // 浮動新增按鈕 (FAB) - 讓學生隨時點擊新增節次
-        if (isLoggedIn) {
-            FloatingActionButton(
-                onClick = { showAddDialog = true },
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(20.dp)
-            ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = "新增課表節次")
+            Box(modifier = modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    // 頂部切換操作欄
+                    TimetableControlsBar(
+                        selectedDay = selectedDay,
+                        onSelectDay = { viewModel.selectDay(it) },
+                        isWeekView = isWeekView,
+                        onToggleView = { viewModel.toggleViewMode() },
+                        onBackToToday = { viewModel.backToToday() }
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (slots.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.EventBusy,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(64.dp)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "目前尚無課表資料",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = if (isLoggedIn) {
+                                        "已驗證學生身分！您可直接點擊「手動新增課程節次」自訂排課，或嘗試從學校伺服器同步。"
+                                    } else {
+                                        "尚未登入學生帳號，請先登入以載入個人專屬課表。"
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(20.dp))
+                                if (isLoggedIn) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.fillMaxWidth(0.9f)
+                                    ) {
+                                        Button(
+                                            onClick = { viewModel.openAddDialog() },
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("手動新增課程節次", fontWeight = FontWeight.Bold)
+                                        }
+                                        OutlinedButton(
+                                            onClick = onSync,
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("立即同步學校課表", fontWeight = FontWeight.SemiBold)
+                                        }
+                                        TextButton(
+                                            onClick = {
+                                                try {
+                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://infosys.nttu.edu.tw/"))
+                                                    context.startActivity(intent)
+                                                } catch (_: Exception) {
+                                                    Toast.makeText(context, "無法開啟瀏覽器", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        ) {
+                                            Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("開啟臺東大學校務系統 (查詢課表)", fontSize = 13.sp)
+                                        }
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = onOpenLogin,
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("登入帳號載入課表", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        if (isWeekView) {
+                            WeekTableView(
+                                slots = slots,
+                                isDark = isDark,
+                                onSlotClick = { viewModel.selectSlotForDetail(it) }
+                            )
+                        } else {
+                            // 預先過濾當日課表，避免在 Composable 內重複計算
+                            val daySlots = remember(slots, selectedDay) {
+                                slots.filter { it.dayOfWeek == selectedDay }
+                            }
+                            DayTimelineView(
+                                dayOfWeek = selectedDay,
+                                slots = daySlots,
+                                courses = courses,
+                                isDark = isDark,
+                                onSlotClick = { viewModel.selectSlotForDetail(it) }
+                            )
+                        }
+                    }
+                }
+
+                // 浮動新增按鈕 (FAB) - 讓學生隨時點擊新增節次
+                if (isLoggedIn) {
+                    FloatingActionButton(
+                        onClick = { viewModel.openAddDialog() },
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(20.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Add, contentDescription = "新增課表節次")
+                    }
+                }
+            }
+
+            // 課程節次詳細資訊彈窗 (支援編輯與刪除)
+            selectedSlotForDetail?.let { slot ->
+                CourseDetailDialog(
+                    slot = slot,
+                    courses = courses,
+                    isDark = isDark,
+                    onEdit = {
+                        viewModel.openAddDialog(slot)
+                        viewModel.selectSlotForDetail(null)
+                    },
+                    onDelete = {
+                        viewModel.deleteSlot(slot.dayOfWeek, slot.periodNumber)
+                        Toast.makeText(context, "已刪除「${slot.courseName}」該節次", Toast.LENGTH_SHORT).show()
+                    },
+                    onDismiss = { viewModel.selectSlotForDetail(null) }
+                )
+            }
+
+            // 新增課表節次彈窗
+            if (showAddDialog) {
+                AddEditSlotDialog(
+                    initialSlot = null,
+                    courses = courses,
+                    defaultDayOfWeek = selectedDay,
+                    onSave = { newSlot ->
+                        viewModel.addOrUpdateSlot(newSlot)
+                        Toast.makeText(context, "已新增「${newSlot.courseName}」課表節次", Toast.LENGTH_SHORT).show()
+                    },
+                    onDismiss = { viewModel.dismissAddDialog() }
+                )
+            }
+
+            // 編輯課表節次彈窗
+            editingSlot?.let { slot ->
+                AddEditSlotDialog(
+                    initialSlot = slot,
+                    courses = courses,
+                    defaultDayOfWeek = slot.dayOfWeek,
+                    onSave = { updatedSlot ->
+                        viewModel.updateSlot(slot, updatedSlot)
+                        Toast.makeText(context, "已更新「${updatedSlot.courseName}」課表節次", Toast.LENGTH_SHORT).show()
+                    },
+                    onDismiss = { viewModel.dismissAddDialog() }
+                )
             }
         }
-    }
-
-    // 課程節次詳細資訊彈窗 (支援編輯與刪除)
-    selectedSlotForDetail?.let { slot ->
-        CourseDetailDialog(
-            slot = slot,
-            courses = courses,
-            isDark = isDark,
-            onEdit = {
-                editingSlot = slot
-                selectedSlotForDetail = null
-            },
-            onDelete = {
-                scope.launch {
-                    repository.deleteTimetableSlot(slot.dayOfWeek, slot.periodNumber)
-                    Toast.makeText(context, "已刪除「${slot.courseName}」該節次", Toast.LENGTH_SHORT).show()
-                }
-                selectedSlotForDetail = null
-            },
-            onDismiss = { selectedSlotForDetail = null }
-        )
-    }
-
-    // 新增課表節次彈窗
-    if (showAddDialog) {
-        AddEditSlotDialog(
-            initialSlot = null,
-            courses = courses,
-            defaultDayOfWeek = selectedDay,
-            onSave = { newSlot ->
-                scope.launch {
-                    repository.addTimetableSlot(newSlot)
-                    Toast.makeText(context, "已新增「${newSlot.courseName}」課表節次", Toast.LENGTH_SHORT).show()
-                }
-                showAddDialog = false
-            },
-            onDismiss = { showAddDialog = false }
-        )
-    }
-
-    // 編輯課表節次彈窗
-    editingSlot?.let { slot ->
-        AddEditSlotDialog(
-            initialSlot = slot,
-            courses = courses,
-            defaultDayOfWeek = slot.dayOfWeek,
-            onSave = { updatedSlot ->
-                scope.launch {
-                    // 若修改了星期或節次，先刪除舊格位再新增
-                    if (updatedSlot.dayOfWeek != slot.dayOfWeek || updatedSlot.periodNumber != slot.periodNumber) {
-                        repository.deleteTimetableSlot(slot.dayOfWeek, slot.periodNumber)
-                    }
-                    repository.addTimetableSlot(updatedSlot)
-                    Toast.makeText(context, "已更新「${updatedSlot.courseName}」課表節次", Toast.LENGTH_SHORT).show()
-                }
-                editingSlot = null
-            },
-            onDismiss = { editingSlot = null }
-        )
     }
 }
 

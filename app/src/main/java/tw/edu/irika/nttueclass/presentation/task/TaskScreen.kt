@@ -31,6 +31,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -42,14 +43,9 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,17 +55,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import tw.edu.irika.nttueclass.data.remote.client.NttuHttpClient
-import tw.edu.irika.nttueclass.data.repository.EclassRepository
 import tw.edu.irika.nttueclass.domain.model.TaskItem
 import tw.edu.irika.nttueclass.domain.model.TaskStatus
 import tw.edu.irika.nttueclass.domain.model.TaskType
 import tw.edu.irika.nttueclass.ui.theme.StatusSuccess
 import tw.edu.irika.nttueclass.ui.theme.StatusUrgent
 import tw.edu.irika.nttueclass.ui.theme.StatusWarning
+import androidx.hilt.navigation.compose.hiltViewModel
 
 @Composable
 fun TaskScreen(
-    repository: EclassRepository,
+    viewModel: TaskViewModel = hiltViewModel(),
     isLoggedIn: Boolean,
     onOpenLogin: () -> Unit,
     onSync: () -> Unit,
@@ -77,226 +73,222 @@ fun TaskScreen(
 ) {
     val context = LocalContext.current
     val isDark = !MaterialTheme.colorScheme.background.luminance().let { it > 0.5f }
-    var selectedCategory by rememberSaveable { mutableIntStateOf(0) } // 0: 作業, 1: 測驗, 2: 問卷
-    var selectedFilter by rememberSaveable { mutableIntStateOf(0) } // 0: 全部, 1: 待繳交, 2: 即快截止, 3: 已逾期, 4: 已完成
-    var selectedTaskForDetail by remember { mutableStateOf<TaskItem?>(null) }
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    // 從真實 Room 資料庫訂閱待辦與作業資料流
-    val tasks by repository.getTasksStream().collectAsStateWithLifecycle(initialValue = emptyList())
-
-    val assignmentTasks = remember(tasks) { tasks.filter { it.type == TaskType.ASSIGNMENT } }
-    val quizTasks = remember(tasks) { tasks.filter { it.type == TaskType.QUIZ || it.type == TaskType.EXAM } }
-    val surveyTasks = remember(tasks) { tasks.filter { it.type == TaskType.QUESTIONNAIRE } }
-
-    val categoryTabs = listOf(
-        "作業 (${assignmentTasks.size})",
-        "測驗 (${quizTasks.size})",
-        "問卷 (${surveyTasks.size})"
-    )
-
-    val currentCategoryTasks = when (selectedCategory) {
-        0 -> assignmentTasks
-        1 -> quizTasks
-        2 -> surveyTasks
-        else -> assignmentTasks
-    }
-
-    val pendingCount = currentCategoryTasks.count { !it.isSubmitted && it.status != TaskStatus.OVERDUE }
-    val urgentCount = currentCategoryTasks.count { !it.isSubmitted && (it.status == TaskStatus.URGENT || it.status == TaskStatus.WARNING) }
-    val overdueCount = currentCategoryTasks.count { !it.isSubmitted && it.status == TaskStatus.OVERDUE }
-    val completedCount = currentCategoryTasks.count { it.isSubmitted }
-
-    val filterOptions = listOf(
-        "全部 (${currentCategoryTasks.size})",
-        "待繳交 ($pendingCount)",
-        "即將截止 ($urgentCount)",
-        "已逾期 ($overdueCount)",
-        "已完成 ($completedCount)"
-    )
-
-    val filteredTasks = currentCategoryTasks.filter { task ->
-        when (selectedFilter) {
-            1 -> !task.isSubmitted && task.status != TaskStatus.OVERDUE
-            2 -> !task.isSubmitted && (task.status == TaskStatus.URGENT || task.status == TaskStatus.WARNING)
-            3 -> !task.isSubmitted && task.status == TaskStatus.OVERDUE
-            4 -> task.isSubmitted
-            else -> true
-        }
-    }
-
-    val categoryName = when (selectedCategory) {
-        0 -> "作業"
-        1 -> "測驗"
-        2 -> "問卷"
-        else -> "項目"
-    }
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-    ) {
-        // 頂部大分類分頁：作業 / 測驗 / 問卷
-        TabRow(
-            selectedTabIndex = selectedCategory,
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp)
-        ) {
-            categoryTabs.forEachIndexed { index, title ->
-                Tab(
-                    selected = selectedCategory == index,
-                    onClick = {
-                        selectedCategory = index
-                        selectedFilter = 0
-                    },
-                    text = {
-                        Text(
-                            text = title,
-                            fontWeight = if (selectedCategory == index) FontWeight.Bold else FontWeight.Normal,
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                    }
-                )
-            }
-        }
-
-        // 篩選 Chip 橫列
-        LazyRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(filterOptions.size) { index ->
-                val isSelected = selectedFilter == index
-                FilterChip(
-                    selected = isSelected,
-                    onClick = { selectedFilter = index },
-                    label = {
-                        Text(
-                            text = filterOptions[index],
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        if (filteredTasks.isEmpty()) {
+    when (val state = uiState) {
+        is TaskUiState.Loading -> {
             Box(
-                modifier = Modifier
+                modifier = modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+        is TaskUiState.Error -> {
+            Box(
+                modifier = modifier
                     .fillMaxSize()
-                    .padding(32.dp),
+                    .padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Icon(
-                        imageVector = if (currentCategoryTasks.isEmpty()) Icons.Default.EventBusy else Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = if (currentCategoryTasks.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) else StatusSuccess,
-                        modifier = Modifier.size(56.dp)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = if (currentCategoryTasks.isEmpty()) "目前尚無$categoryName" else "太棒了！本分類目前沒有待辦事項",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = if (currentCategoryTasks.isEmpty()) {
-                            if (isLoggedIn) "已登入學生帳號，請點擊下方按鈕同步臺東大學最新${categoryName}。"
-                            else "尚未登入學生帳號，請先登入以載入${categoryName}清單。"
-                        } else {
-                            "所選類別下目前無${categoryName}項目。"
-                        },
+                        text = state.message,
+                        color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
-                    if (currentCategoryTasks.isEmpty()) {
-                        Spacer(modifier = Modifier.height(20.dp))
-                        if (isLoggedIn) {
-                            Button(
-                                onClick = onSync,
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("立即同步", fontWeight = FontWeight.Bold)
-                            }
-                        } else {
-                            Button(
-                                onClick = onOpenLogin,
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("登入帳號載入", fontWeight = FontWeight.Bold)
-                            }
+                    if (state.canRetry) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(onClick = onSync) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("重試載入")
                         }
                     }
                 }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        }
+        is TaskUiState.Success -> {
+            val selectedCategory = state.selectedCategory
+            val selectedFilter = state.selectedFilter
+            val categoryTabs = state.categoryTabs
+            val filterOptions = state.filterOptions
+            val filteredTasks = state.filteredTasks
+            val categoryName = state.categoryName
+            val isCurrentCategoryEmpty = state.isCurrentCategoryEmpty
+            val selectedTaskForDetail = state.selectedTaskForDetail
+
+            Column(
+                modifier = modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
             ) {
-                items(filteredTasks, key = { it.id }) { task ->
-                    TaskCard(
-                        task = task,
-                        isDark = isDark,
-                        onClick = { selectedTaskForDetail = task }
-                    )
+                // 頂部大分類分頁：作業 / 測驗 / 問卷
+                TabRow(
+                    selectedTabIndex = selectedCategory,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    categoryTabs.forEachIndexed { index, title ->
+                        Tab(
+                            selected = selectedCategory == index,
+                            onClick = {
+                                viewModel.onCategorySelect(index)
+                            },
+                            text = {
+                                Text(
+                                    text = title,
+                                    fontWeight = if (selectedCategory == index) FontWeight.Bold else FontWeight.Normal,
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                            }
+                        )
+                    }
                 }
-                item { Spacer(modifier = Modifier.height(16.dp)) }
+
+                // 篩選 Chip 橫列
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filterOptions.size) { index ->
+                        val isSelected = selectedFilter == index
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { viewModel.onFilterSelect(index) },
+                            label = {
+                                Text(
+                                    text = filterOptions[index],
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                if (filteredTasks.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isCurrentCategoryEmpty) Icons.Default.EventBusy else Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = if (isCurrentCategoryEmpty) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) else StatusSuccess,
+                                modifier = Modifier.size(56.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = if (isCurrentCategoryEmpty) "目前尚無$categoryName" else "太棒了！本分類目前沒有待辦事項",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = if (isCurrentCategoryEmpty) {
+                                    if (isLoggedIn) "已登入學生帳號，請點擊下方按鈕同步臺東大學最新${categoryName}。"
+                                    else "尚未登入學生帳號，請先登入以載入${categoryName}清單。"
+                                } else {
+                                    "所選類別下目前無${categoryName}項目。"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                            if (isCurrentCategoryEmpty) {
+                                Spacer(modifier = Modifier.height(20.dp))
+                                if (isLoggedIn) {
+                                    Button(
+                                        onClick = onSync,
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("立即同步", fontWeight = FontWeight.Bold)
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = onOpenLogin,
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("登入帳號載入", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(filteredTasks, key = { it.id }) { task ->
+                            TaskCard(
+                                task = task,
+                                isDark = isDark,
+                                onClick = { viewModel.selectTaskForDetail(task) }
+                            )
+                        }
+                        item { Spacer(modifier = Modifier.height(16.dp)) }
+                    }
+                }
+            }
+
+            // 任務詳細資訊對話框
+            selectedTaskForDetail?.let { task ->
+                TaskDetailDialog(
+                    task = task,
+                    isDark = isDark,
+                    onOpenWeb = {
+                        val path = when (task.type) {
+                            TaskType.ASSIGNMENT -> "homeworkList"
+                            TaskType.QUESTIONNAIRE -> "questionnaireList"
+                            else -> "examList"
+                        }
+                        val targetUrl = when {
+                            task.url.isNotBlank() -> task.url
+                            task.courseId.isNotBlank() && !task.courseId.startsWith("c_") -> {
+                                "${NttuHttpClient.BASE_URL}/course/$path/${task.courseId}"
+                            }
+                            else -> {
+                                "${NttuHttpClient.BASE_URL}/course"
+                            }
+                        }
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
+                            context.startActivity(intent)
+                        } catch (_: Exception) {
+                            Toast.makeText(context, "無法開啟瀏覽器", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onDismiss = { viewModel.selectTaskForDetail(null) }
+                )
             }
         }
-    }
-
-    // 任務詳細資訊對話框
-    selectedTaskForDetail?.let { task ->
-        TaskDetailDialog(
-            task = task,
-            isDark = isDark,
-            onOpenWeb = {
-                val path = when (task.type) {
-                    TaskType.ASSIGNMENT -> "homeworkList"
-                    TaskType.QUESTIONNAIRE -> "questionnaireList"
-                    else -> "examList"
-                }
-                val targetUrl = when {
-                    task.url.isNotBlank() -> task.url
-                    task.courseId.isNotBlank() && !task.courseId.startsWith("c_") -> {
-                        "${NttuHttpClient.BASE_URL}/course/$path/${task.courseId}"
-                    }
-                    else -> {
-                        "${NttuHttpClient.BASE_URL}/course"
-                    }
-                }
-                try {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
-                    context.startActivity(intent)
-                } catch (_: Exception) {
-                    Toast.makeText(context, "無法開啟瀏覽器", Toast.LENGTH_SHORT).show()
-                }
-            },
-            onDismiss = { selectedTaskForDetail = null }
-        )
     }
 }
 

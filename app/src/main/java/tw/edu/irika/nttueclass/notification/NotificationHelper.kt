@@ -67,33 +67,40 @@ object NotificationHelper {
         courseName: String,
         classroom: String,
         startTime: String,
-        instructor: String
+        instructor: String,
+        dayOfWeek: Int = 1,
+        periodNumber: Int = 1
     ) {
-        val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            context,
-            courseName.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = NotificationCompat.Builder(context, CHANNEL_CLASS_REMINDER)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("下一堂課提醒：$courseName")
-            .setContentText("$startTime 開始於 $classroom ($instructor)")
-            .setStyle(
-                NotificationCompat.BigTextStyle().bigText(
-                    "課程：$courseName\n開始時間：$startTime\n上課教室：$classroom\n授課教師：$instructor"
-                )
+        try {
+            val notificationId = ClassReminderScheduler.getRequestCode(dayOfWeek, periodNumber)
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                notificationId,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentIntent(pendingIntent)
-            .setAutoCancel(true)
-            .build()
 
-        notifySafe(context, courseName.hashCode(), notification)
+            val notification = NotificationCompat.Builder(context, CHANNEL_CLASS_REMINDER)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle("下一堂課提醒：$courseName")
+                .setContentText("$startTime 開始於 $classroom ($instructor)")
+                .setStyle(
+                    NotificationCompat.BigTextStyle().bigText(
+                        "課程：$courseName\n開始時間：$startTime\n上課教室：$classroom\n授課教師：$instructor"
+                    )
+                )
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .build()
+
+            notifySafe(context, notificationId, notification)
+        } catch (_: Exception) {
+            // 防禦性捕捉在無效環境或非 Android 運行時之建構異常
+        }
     }
 
     /**
@@ -106,33 +113,36 @@ object NotificationHelper {
         dueDateTime: String,
         isUrgent: Boolean
     ) {
-        val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            context,
-            title.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val prefix = if (isUrgent) "【即將截止預警】" else "【作業繳交提醒】"
-
-        val notification = NotificationCompat.Builder(context, CHANNEL_TASK_ALERT)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("$prefix$courseName")
-            .setContentText("$title (截止時間：$dueDateTime)")
-            .setStyle(
-                NotificationCompat.BigTextStyle().bigText(
-                    "項目：$title\n課程：$courseName\n截止時間：$dueDateTime\n請及早繳交以確保成績權益！"
-                )
+        try {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                title.hashCode(),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentIntent(pendingIntent)
-            .setAutoCancel(true)
-            .build()
 
-        notifySafe(context, title.hashCode(), notification)
+            val prefix = if (isUrgent) "【即將截止預警】" else "【作業繳交提醒】"
+
+            val notification = NotificationCompat.Builder(context, CHANNEL_TASK_ALERT)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle("$prefix$courseName")
+                .setContentText("$title (截止時間：$dueDateTime)")
+                .setStyle(
+                    NotificationCompat.BigTextStyle().bigText(
+                        "項目：$title\n課程：$courseName\n截止時間：$dueDateTime\n請及早繳交以確保成績權益！"
+                    )
+                )
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .build()
+
+            notifySafe(context, title.hashCode(), notification)
+        } catch (_: Exception) {
+        }
     }
 
     /**
@@ -143,26 +153,29 @@ object NotificationHelper {
         title: String,
         courseName: String
     ) {
-        val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        try {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                title.hashCode(),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = NotificationCompat.Builder(context, CHANNEL_ANNOUNCEMENT)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle("新公告：$courseName")
+                .setContentText(title)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .build()
+
+            notifySafe(context, title.hashCode(), notification)
+        } catch (_: Exception) {
         }
-        val pendingIntent = PendingIntent.getActivity(
-            context,
-            title.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = NotificationCompat.Builder(context, CHANNEL_ANNOUNCEMENT)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("新公告：$courseName")
-            .setContentText(title)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setContentIntent(pendingIntent)
-            .setAutoCancel(true)
-            .build()
-
-        notifySafe(context, title.hashCode(), notification)
     }
 
     private fun notifySafe(

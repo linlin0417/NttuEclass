@@ -3,9 +3,11 @@ package tw.edu.irika.nttueclass.data.remote.auth
 import android.content.Context
 import android.content.SharedPreferences
 
-class AuthLockoutManager(context: Context) {
-    private val prefs: SharedPreferences =
+class AuthLockoutManager(private val prefs: SharedPreferences) {
+
+    constructor(context: Context) : this(
         context.getSharedPreferences("nttu_auth_lockout_prefs", Context.MODE_PRIVATE)
+    )
 
     companion object {
         private const val KEY_FAILED_ATTEMPTS = "failed_attempts"
@@ -15,38 +17,31 @@ class AuthLockoutManager(context: Context) {
     }
 
     /**
-     * 檢測當前是否處於 30 分鐘本地熔斷冷卻中
+     * 檢測當前是否處於 30 分鐘本地熔斷冷卻中 (純狀態查詢，無副作用)
      */
     fun isLockedOut(): Boolean {
         val lockoutUntil = prefs.getLong(KEY_LOCKOUT_TIMESTAMP, 0L)
         val now = System.currentTimeMillis()
-        if (now < lockoutUntil) {
-            return true
-        }
-        // 若已逾期，自動重置鎖定時間戳
-        if (lockoutUntil != 0L) {
-            prefs.edit().remove(KEY_LOCKOUT_TIMESTAMP).apply()
-        }
-        return false
+        return now < lockoutUntil
     }
 
     /**
-     * 取得冷卻鎖定剩餘秒數
+     * 取得冷卻鎖定剩餘秒數 (純狀態查詢，無副作用)
      */
     fun getRemainingLockoutSeconds(): Long {
         val lockoutUntil = prefs.getLong(KEY_LOCKOUT_TIMESTAMP, 0L)
         val now = System.currentTimeMillis()
         val diff = lockoutUntil - now
-        return if (diff > 0) diff / 1000 else 0L
+        return if (diff > 0) (diff + 999) / 1000 else 0L
     }
 
     /**
-     * 取得連續密碼錯誤次數
+     * 取得連續密碼錯誤次數 (純狀態查詢，若冷卻已過期視為 0，無副作用)
      */
     fun getConsecutiveFailures(): Int {
-        if (!isLockedOut() && prefs.getLong(KEY_LOCKOUT_TIMESTAMP, 0L) != 0L) {
-            // 冷卻結束後自動重置失敗次數
-            resetFailures()
+        val lockoutUntil = prefs.getLong(KEY_LOCKOUT_TIMESTAMP, 0L)
+        val now = System.currentTimeMillis()
+        if (lockoutUntil != 0L && now >= lockoutUntil) {
             return 0
         }
         return prefs.getInt(KEY_FAILED_ATTEMPTS, 0)
@@ -68,18 +63,37 @@ class AuthLockoutManager(context: Context) {
     }
 
     /**
-     * 記錄一次密碼錯誤失敗
+     * 記錄一次密碼錯誤失敗 (明確狀態變更方法)
      */
     fun recordFailure(): Int {
-        val current = prefs.getInt(KEY_FAILED_ATTEMPTS, 0) + 1
+        val lockoutUntil = prefs.getLong(KEY_LOCKOUT_TIMESTAMP, 0L)
+        val now = System.currentTimeMillis()
+        // 若先前鎖定已過期，重新計數
+        val baseAttempts = if (lockoutUntil != 0L && now >= lockoutUntil) 0 else prefs.getInt(KEY_FAILED_ATTEMPTS, 0)
+        val current = baseAttempts + 1
         val editor = prefs.edit().putInt(KEY_FAILED_ATTEMPTS, current)
         if (current >= MAX_FAILED_ATTEMPTS) {
             // 達到 5 次，立即啟動 30 分鐘本地冷卻熔斷
-            val lockoutUntil = System.currentTimeMillis() + LOCKOUT_DURATION_MS
-            editor.putLong(KEY_LOCKOUT_TIMESTAMP, lockoutUntil)
+            val newLockoutUntil = now + LOCKOUT_DURATION_MS
+            editor.putLong(KEY_LOCKOUT_TIMESTAMP, newLockoutUntil)
+        } else if (lockoutUntil != 0L && now >= lockoutUntil) {
+            editor.remove(KEY_LOCKOUT_TIMESTAMP)
         }
         editor.apply()
         return current
+    }
+
+    /**
+     * 清理已過期的冷卻狀態 (明確清理方法)
+     */
+    fun cleanExpiredLockout(): Boolean {
+        val lockoutUntil = prefs.getLong(KEY_LOCKOUT_TIMESTAMP, 0L)
+        val now = System.currentTimeMillis()
+        if (lockoutUntil != 0L && now >= lockoutUntil) {
+            resetFailures()
+            return true
+        }
+        return false
     }
 
     /**

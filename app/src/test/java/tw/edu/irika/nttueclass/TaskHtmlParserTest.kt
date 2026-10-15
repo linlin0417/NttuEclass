@@ -296,4 +296,43 @@ class TaskHtmlParserTest {
         assertEquals(TaskType.QUESTIONNAIRE, task.type)
         assertFalse(task.isSubmitted)
     }
+
+    @Test
+    fun testSingleDigitMonthAndDayParsing() {
+        val now = 1757123456789L // 2025-09-06
+        // "2026-9-1 12:00"
+        val (hours, status) = TaskItem.calculateRemainingHoursAndStatus("2026-9-1 12:00", false, nowMs = now)
+        assertTrue("Single-digit month and day must be parsed without throwing", hours > 0)
+        assertEquals(TaskStatus.PENDING, status)
+
+        // "2026/9/1 12:00"
+        val (hoursSlash, statusSlash) = TaskItem.calculateRemainingHoursAndStatus("2026/9/1 12:00", false, nowMs = now)
+        assertTrue("Single-digit with slash must be parsed without throwing", hoursSlash > 0)
+        assertEquals(TaskStatus.PENDING, statusSlash)
+
+        // Date only: "2026-9-1"
+        val (hoursDateOnly, _) = TaskItem.calculateRemainingHoursAndStatus("2026-9-1", false, nowMs = now)
+        assertTrue("Single-digit date-only must be parsed without throwing", hoursDateOnly > 0)
+    }
+
+    @Test
+    fun testNormalizeDueDateEdgeCases() {
+        assertEquals("2026-06-19 23:59", TaskItem.normalizeDueDate("06-19 23:59", defaultYear = 2026))
+        assertEquals("2026/6/19 12:00", TaskItem.normalizeDueDate("6/19 12:00", defaultYear = 2026))
+        assertEquals("2025-10-10 10:00", TaskItem.normalizeDueDate("2025-10-10 10:00", defaultYear = 2026))
+        assertEquals("", TaskItem.normalizeDueDate(""))
+        assertEquals("", TaskItem.normalizeDueDate("   "))
+    }
+
+    @Test
+    fun testRelativeDueDateParsing() {
+        val now = 1700000000000L
+        val (hours2, status2) = TaskItem.calculateRemainingHoursAndStatus("2小時", false, nowMs = now)
+        assertTrue("2 hours relative should be around 2h", hours2 in 1..2)
+        assertEquals(TaskStatus.URGENT, status2)
+
+        val (hoursDays, statusDays) = TaskItem.calculateRemainingHoursAndStatus("5天", false, nowMs = now)
+        assertTrue("5 days relative should be around 120h", hoursDays in 119..120)
+        assertEquals(TaskStatus.PENDING, statusDays)
+    }
 }

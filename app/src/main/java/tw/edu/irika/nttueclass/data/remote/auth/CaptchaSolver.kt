@@ -6,13 +6,21 @@ import android.util.Log
 import com.googlecode.tesseract.android.TessBaseAPI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.Closeable
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 
-class CaptchaSolver(private val context: Context) {
+class CaptchaSolver(private val context: Context) : Closeable {
+    companion object {
+        private val REGEX_WHITESPACE = Regex("""\s+""")
+    }
     private val tessDataPath: String = context.filesDir.absolutePath + "/tesseract/"
     
+    @Volatile
+    private var tessBaseAPI: TessBaseAPI? = null
+    private val apiLock = Any()
+
     suspend fun init(): Boolean = withContext(Dispatchers.IO) {
         val dir = File(tessDataPath, "tessdata")
         if (!dir.exists() && !dir.mkdirs()) {
@@ -36,35 +44,60 @@ class CaptchaSolver(private val context: Context) {
                 return@withContext false
             }
         }
+
+        // Initialize TessBaseAPI once and reuse across attempts
+        synchronized(apiLock) {
+            if (tessBaseAPI == null) {
+                val api = TessBaseAPI()
+                val success = api.init(tessDataPath, "eng", TessBaseAPI.OEM_DEFAULT)
+                if (!success) {
+                    api.recycle()
+                    return@withContext false
+                }
+                api.setVariable(TessBaseAPI.VAR_CHAR_WHITELIST, "0123456789")
+                api.pageSegMode = TessBaseAPI.PageSegMode.PSM_SINGLE_WORD
+                tessBaseAPI = api
+            }
+        }
         return@withContext true
     }
     
     suspend fun solve(bitmap: Bitmap): String = withContext(Dispatchers.Default) {
-        var tessBaseAPI: TessBaseAPI? = null
+        val api = synchronized(apiLock) { tessBaseAPI } ?: run {
+            if (!init()) return@withContext ""
+            synchronized(apiLock) { tessBaseAPI } ?: return@withContext ""
+        }
+
+        // Draw on white background to prevent transparency issues
+        val whiteBgBitmap = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
         try {
-            tessBaseAPI = TessBaseAPI()
-            val success = tessBaseAPI.init(tessDataPath, "eng", TessBaseAPI.OEM_DEFAULT)
-            if (!success) {
-                return@withContext ""
-            }
-            
-            tessBaseAPI.setVariable(TessBaseAPI.VAR_CHAR_WHITELIST, "0123456789")
-            tessBaseAPI.pageSegMode = TessBaseAPI.PageSegMode.PSM_SINGLE_WORD
-            
-            // Draw on white background to prevent transparency issues
-            val whiteBgBitmap = android.graphics.Bitmap.createBitmap(bitmap.width, bitmap.height, android.graphics.Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(whiteBgBitmap)
             canvas.drawColor(android.graphics.Color.WHITE)
             canvas.drawBitmap(bitmap, 0f, 0f, null)
             
-            tessBaseAPI.setImage(whiteBgBitmap)
-            val result = tessBaseAPI.utF8Text ?: ""
-            return@withContext result.replace("\\s+".toRegex(), "")
+            val result = synchronized(apiLock) {
+                api.setImage(whiteBgBitmap)
+                val text = api.utF8Text ?: ""
+                api.clear()
+                text
+            }
+            return@withContext result.replace(REGEX_WHITESPACE, "")
         } catch (e: Exception) {
             Log.e("CaptchaSolver", "Solve error", e)
             return@withContext ""
         } finally {
-            tessBaseAPI?.recycle()
+            whiteBgBitmap.recycle()
         }
+    }
+
+    fun recycle() {
+        synchronized(apiLock) {
+            tessBaseAPI?.recycle()
+            tessBaseAPI = null
+        }
+    }
+
+    override fun close() {
+        recycle()
     }
 }

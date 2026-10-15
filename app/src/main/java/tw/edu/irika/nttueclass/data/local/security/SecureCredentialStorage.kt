@@ -5,19 +5,19 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
-class SecureCredentialStorage(context: Context) {
+open class SecureCredentialStorage {
     private val prefs: SharedPreferences
 
     // 記憶體快取：避免每次 Flow emit 都觸發 EncryptedSharedPreferences AES-GCM 解密
     @Volatile
     private var cachedLoggedIn: Boolean? = null
 
-    init {
+    constructor(context: Context) {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
 
-        prefs = EncryptedSharedPreferences.create(
+        this.prefs = EncryptedSharedPreferences.create(
             context,
             "nttu_secure_credentials_prefs",
             masterKey,
@@ -26,6 +26,11 @@ class SecureCredentialStorage(context: Context) {
         )
 
         // 初始化時預載快取，後續讀取不再觸發解密
+        cachedLoggedIn = prefs.getBoolean(KEY_IS_LOGGED_IN, false)
+    }
+
+    constructor(prefs: SharedPreferences) {
+        this.prefs = prefs
         cachedLoggedIn = prefs.getBoolean(KEY_IS_LOGGED_IN, false)
     }
 

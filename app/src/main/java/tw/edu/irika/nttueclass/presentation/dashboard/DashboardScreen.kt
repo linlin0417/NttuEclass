@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -48,24 +49,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import tw.edu.irika.nttueclass.data.repository.EclassRepository
-import tw.edu.irika.nttueclass.domain.model.AcademicTermHelper
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import tw.edu.irika.nttueclass.domain.model.Announcement
 import tw.edu.irika.nttueclass.domain.model.StandardPeriods
 import tw.edu.irika.nttueclass.domain.model.TaskItem
 import tw.edu.irika.nttueclass.domain.model.TaskStatus
 import tw.edu.irika.nttueclass.domain.model.TimetableSlot
+import androidx.hilt.navigation.compose.hiltViewModel
 import tw.edu.irika.nttueclass.ui.theme.StatusSuccess
 import tw.edu.irika.nttueclass.ui.theme.StatusUrgent
 import tw.edu.irika.nttueclass.ui.theme.StatusWarning
-import java.time.LocalDate
-import java.time.LocalTime
 
 @Composable
 fun DashboardScreen(
-    repository: EclassRepository,
-    isLoggedIn: Boolean,
-    currentStudentId: String?,
+    viewModel: DashboardViewModel = hiltViewModel(),
     onNavigateToTimetable: () -> Unit,
     onNavigateToTasks: () -> Unit,
     onNavigateToCourses: () -> Unit,
@@ -73,117 +72,101 @@ fun DashboardScreen(
     onSync: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // 訂閱真實資料流 (無任何寫死假資料)
-    val timetableSlots by repository.getTimetableStream().collectAsStateWithLifecycle(initialValue = emptyList())
-    val courses by repository.getCoursesStream().collectAsStateWithLifecycle(initialValue = emptyList())
-    val tasks by repository.getTasksStream().collectAsStateWithLifecycle(initialValue = emptyList())
-    val announcements by repository.getAnnouncementsStream().collectAsStateWithLifecycle(initialValue = emptyList())
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    // 計算真實當前日期、星期與學期
-    val now = remember { LocalDate.now() }
-    val todayWeekday = remember { now.dayOfWeek.value } // 1=Mon .. 7=Sun
-    val weekdayNames = listOf("週一", "週二", "週三", "週四", "週五", "週六", "週日")
-    val weekdayStr = weekdayNames.getOrElse(todayWeekday - 1) { "今日" }
-    val semesterDisplay = remember { AcademicTermHelper.getCurrentSemesterDisplay(now) }
-    val dateSubtitle = remember { "$semesterDisplay · 今日$weekdayStr · ${now.monthValue}月${now.dayOfMonth}日" }
-
-    // 動態計算今日課程與下一堂課
-    val todaySlots = remember(timetableSlots, todayWeekday) {
-        timetableSlots.filter { it.dayOfWeek == todayWeekday }.sortedBy { it.periodNumber }
-    }
-    var currentLocalTime by remember { mutableStateOf(LocalTime.now()) }
-    val nextSlot = remember(todaySlots, currentLocalTime) {
-        todaySlots.firstOrNull { slot ->
-            val period = StandardPeriods.getByPeriodNumber(slot.periodNumber)
-            if (period != null) {
-                val parts = period.endTime.split(":")
-                val endHour = parts.getOrNull(0)?.toIntOrNull() ?: 23
-                val endMinute = parts.getOrNull(1)?.toIntOrNull() ?: 59
-                val endTime = LocalTime.of(endHour, endMinute)
-                currentLocalTime.isBefore(endTime)
-            } else true
+    when (val state = uiState) {
+        is DashboardUiState.Loading -> {
+            Box(
+                modifier = modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
         }
-    }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(60_000L)
-            currentLocalTime = LocalTime.now()
+        is DashboardUiState.Error -> {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = state.message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (state.canRetry) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(onClick = onSync) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("重試載入")
+                        }
+                    }
+                }
+            }
         }
-    }
+        is DashboardUiState.Success -> {
+            LazyColumn(
+                modifier = modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                item(key = "top_spacer", contentType = "spacer") { Spacer(modifier = Modifier.height(4.dp)) }
 
-    // 動態計算最緊急待辦 (優先即將截止與待繳交，避免過期作業霸佔首頁預警)
-    val urgentTask = remember(tasks) {
-        val activeTasks = tasks.filter { !it.isSubmitted && it.status != TaskStatus.OVERDUE }
-        if (activeTasks.isNotEmpty()) {
-            activeTasks.sortedWith(
-                compareBy(
-                    { it.status != TaskStatus.URGENT },
-                    { it.status != TaskStatus.WARNING },
-                    { it.remainingHours }
-                )
-            ).firstOrNull()
-        } else {
-            tasks.filter { !it.isSubmitted && it.status == TaskStatus.OVERDUE }
-                .maxByOrNull { it.remainingHours }
+                // 1. 歡迎與學期真實資訊
+                item(key = "header", contentType = "header") {
+                    HeaderSection(
+                        greeting = state.greeting,
+                        subtitle = state.dateSubtitle
+                    )
+                }
+
+                // 2. 下一堂課指引卡片 (動態計算真實課堂)
+                item(key = "next_class", contentType = "card") {
+                    NextClassCard(
+                        slot = state.nextSlot,
+                        courses = state.courses,
+                        hasClassesToday = state.todaySlots.isNotEmpty(),
+                        isScheduleEmpty = state.timetableSlots.isEmpty(),
+                        onClick = onNavigateToTimetable
+                    )
+                }
+
+                // 3. NttuEPass 校園通行快捷卡
+                item(key = "pass_banner", contentType = "banner") {
+                    NttuPassBanner(onOpenPass = onOpenPass)
+                }
+
+                // 4. 即將截止作業/測驗預警 (真實待辦)
+                item(key = "urgent_tasks", contentType = "card") {
+                    UrgentTasksCard(
+                        urgentTask = state.urgentTask,
+                        hasTasks = state.hasTasks,
+                        onClick = onNavigateToTasks
+                    )
+                }
+
+                // 5. 最新課程公告 (真實公告)
+                item(key = "latest_notices", contentType = "card") {
+                    LatestNoticesCard(
+                        notices = state.latestNotices,
+                        onClick = onNavigateToCourses
+                    )
+                }
+
+                item(key = "bottom_spacer", contentType = "spacer") { Spacer(modifier = Modifier.height(16.dp)) }
+            }
         }
-    }
-
-    // 動態取得最新前兩筆公告
-    val latestNotices = remember(announcements) {
-        announcements.take(2)
-    }
-
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item(key = "top_spacer", contentType = "spacer") { Spacer(modifier = Modifier.height(4.dp)) }
-
-        // 1. 歡迎與學期真實資訊
-        item(key = "header", contentType = "header") {
-            HeaderSection(
-                greeting = if (isLoggedIn && !currentStudentId.isNullOrBlank()) "${currentStudentId} 同學，你好！" else "同學，你好！",
-                subtitle = dateSubtitle
-            )
-        }
-
-        // 2. 下一堂課指引卡片 (動態計算真實課堂)
-        item(key = "next_class", contentType = "card") {
-            NextClassCard(
-                slot = nextSlot,
-                courses = courses,
-                hasClassesToday = todaySlots.isNotEmpty(),
-                isScheduleEmpty = timetableSlots.isEmpty(),
-                onClick = onNavigateToTimetable
-            )
-        }
-
-        // 3. NttuEPass 校園通行快捷卡
-        item(key = "pass_banner", contentType = "banner") {
-            NttuPassBanner(onOpenPass = onOpenPass)
-        }
-
-        // 4. 即將截止作業/測驗預警 (真實待辦)
-        item(key = "urgent_tasks", contentType = "card") {
-            UrgentTasksCard(
-                urgentTask = urgentTask,
-                hasTasks = tasks.isNotEmpty(),
-                onClick = onNavigateToTasks
-            )
-        }
-
-        // 5. 最新課程公告 (真實公告)
-        item(key = "latest_notices", contentType = "card") {
-            LatestNoticesCard(
-                notices = latestNotices,
-                onClick = onNavigateToCourses
-            )
-        }
-
-        item(key = "bottom_spacer", contentType = "spacer") { Spacer(modifier = Modifier.height(16.dp)) }
     }
 }
 

@@ -1,8 +1,8 @@
 package tw.edu.irika.nttueclass.data.remote.client
 
+import tw.edu.irika.nttueclass.BuildConfig
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
-import okhttp3.Response
 import okhttp3.logging.HttpLoggingInterceptor
 import java.util.concurrent.TimeUnit
 
@@ -16,7 +16,11 @@ object NttuHttpClient {
 
     val client: OkHttpClient by lazy {
         val loggingInterceptor = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BASIC
+            level = if (BuildConfig.DEBUG) {
+                HttpLoggingInterceptor.Level.BASIC
+            } else {
+                HttpLoggingInterceptor.Level.NONE
+            }
         }
 
         val userAgentInterceptor = Interceptor { chain ->
@@ -37,6 +41,7 @@ object NttuHttpClient {
             .writeTimeout(15, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
+            .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
             .build()
     }
 }

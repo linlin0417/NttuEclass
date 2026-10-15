@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.GroupAdd
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Warning
@@ -116,6 +117,7 @@ data class RosterItem(
     val initialLeaveStatus: String = "" // "", "公假", "病假", "事假"
 )
 
+// TODO: Phase 4 - 獨立核銷程式實作後移除此頁面
 /**
  * 隱藏式 ECC-256 解密核銷與課程點名系統
  */
@@ -231,11 +233,12 @@ fun HiddenVerifierScreen(
                 }
             }
         } else {
-            lastError = result.exceptionOrNull()?.message ?: "條碼解密或格式解析失敗"
+            val ex = result.exceptionOrNull()
+            lastError = ex?.message ?: "條碼解密或格式解析失敗"
             lastScannedPayload = null
             lastDecodedDonation = null
             scope.launch {
-                snackbarHostState.showSnackbar("核銷失敗: $lastError")
+                snackbarHostState.showSnackbar("核銷提示: $lastError")
             }
         }
     }
@@ -282,6 +285,35 @@ fun HiddenVerifierScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // ==================== 安全架構提示橫幅 ====================
+            item {
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "安全架構提示：App 端已完全移除離線私鑰與 2D 通行證解密功能。此處支援 1D 校園條碼掃描點名與名單管理；2D 加密通行證核銷請使用專用核銷工具。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+            }
+
             // ==================== 1. 掃描鏡頭 / 手動輸入卡片 ====================
             item {
                 Card(
@@ -453,7 +485,37 @@ fun HiddenVerifierScreen(
                                 },
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("填入本機 2D 密文", fontSize = 12.sp)
+                                Text("填入 2D 密文 (測防護)", fontSize = 12.sp)
+                            }
+                        }
+
+                        if (lastError != null) {
+                            Card(
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.errorContainer
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = lastError.orEmpty(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
                             }
                         }
                     }
@@ -630,7 +692,7 @@ fun HiddenVerifierScreen(
                         0 -> add(RollCallUiItem(roster.studentId, roster.name, roster.departmentClass, isPresent, leave, false, record?.scannedAt))
                         1 -> if (!isPresent && leave.isBlank()) add(RollCallUiItem(roster.studentId, roster.name, roster.departmentClass, false, "", false, null))
                         2 -> if (!isPresent && leave.isNotBlank()) add(RollCallUiItem(roster.studentId, roster.name, roster.departmentClass, false, leave, false, null))
-                        3 -> if (isPresent) add(RollCallUiItem(roster.studentId, roster.name, roster.departmentClass, true, leave, false, record?.scannedAt))
+                        3 -> if (isPresent) add(RollCallUiItem(roster.studentId, roster.name, roster.departmentClass, true, leave, false, record.scannedAt))
                     }
                 }
                 // 額外人員

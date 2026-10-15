@@ -37,8 +37,18 @@ object AnnouncementHtmlParser {
                 val title = titleEl.text().trim()
                 if (title.isBlank()) continue
 
-                val href = titleEl.attr("href")
-                val id = href.substringAfterLast("=", "ann_${title.hashCode()}")
+                val href = titleEl.attr("href").trim()
+                val id = when {
+                    row.attr("data-id").isNotBlank() -> row.attr("data-id").trim()
+                    row.id().isNotBlank() -> row.id().trim()
+                    titleEl.attr("data-id").isNotBlank() -> titleEl.attr("data-id").trim()
+                    href.contains("id=") -> href.substringAfter("id=").substringBefore("&").trim()
+                    href.contains("/bulletin/") -> href.substringAfter("/bulletin/").substringBefore("/").substringBefore("?").trim()
+                    href.contains("/announcement/") -> href.substringAfter("/announcement/").substringBefore("/").substringBefore("?").trim()
+                    href.contains("=") -> href.substringAfterLast("=").substringBefore("&").trim()
+                    href.isNotBlank() && !href.startsWith("javascript") -> href.trim('/').substringAfterLast("/").trim()
+                    else -> "ann_${title.hashCode()}"
+                }.ifBlank { "ann_${title.hashCode()}" }
 
                 val rowCourseName = row.selectFirst(".course, .course-name, td:nth-child(2)")?.text()?.trim().orEmpty()
                 val resolvedCourseName = rowCourseName.ifBlank { inferredCourseName }

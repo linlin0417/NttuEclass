@@ -76,20 +76,9 @@ object NttuCryptoManager {
     const val DEFAULT_MASTER_PUBLIC_KEY_B64: String =
         "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4LXlBIS2XqbXUoXgaAL37/n1Zb2W4KEvURnTMDR5E/gcUvSbgl03aI6Ut6+tGzPhP+znhCU2lfClxLzKF1Yi5w=="
 
-    /**
-     * 預設內建 NIST P-256 主私鑰 (Base64 PKCS#8)
-     */
-    const val DEFAULT_MASTER_PRIVATE_KEY_B64: String =
-        "MEECAQAwEwYHKoZIzj0CAQYIKoZIzj0DAQcEJzAlAgEBBCDuIe9JeKjf84F/KBPFZdRLohXNE7zJ4OBLX5/3OJXeUQ=="
-
     private val masterPublicKey: PublicKey by lazy {
         val bytes = Base64.getDecoder().decode(DEFAULT_MASTER_PUBLIC_KEY_B64)
         KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(bytes))
-    }
-
-    private val masterPrivateKey: PrivateKey by lazy {
-        val bytes = Base64.getDecoder().decode(DEFAULT_MASTER_PRIVATE_KEY_B64)
-        KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(bytes))
     }
 
     /**
@@ -194,67 +183,78 @@ object NttuCryptoManager {
 
     /**
      * NttuDataPass 2D ECC-256 解密
+     *
+     * 注意：為防止私鑰洩漏，App 端已完全移除內置主私鑰。
+     * 若需要執行解密，必須由專用核銷端（如獨立核銷工具）傳入核銷私鑰，
+     * 未傳入私鑰時將直接回傳失敗。
      */
     fun decryptPayload(
         cipherBase64: String,
-        privKey: PrivateKey = masterPrivateKey
-    ): Result<NttuPassPayload> = runCatching {
-        val rawBytes = try {
-            Base64.getUrlDecoder().decode(cipherBase64.trim())
-        } catch (e: Exception) {
-            Base64.getDecoder().decode(cipherBase64.trim())
+        privKey: PrivateKey? = null
+    ): Result<NttuPassPayload> {
+        if (privKey == null) {
+            return Result.failure(
+                UnsupportedOperationException("App 端已移除離線私鑰與解密功能，Pass 驗證請使用專用核銷工具")
+            )
         }
+        return runCatching {
+            val rawBytes = try {
+                Base64.getUrlDecoder().decode(cipherBase64.trim())
+            } catch (e: Exception) {
+                Base64.getDecoder().decode(cipherBase64.trim())
+            }
 
-        val buffer = ByteBuffer.wrap(rawBytes)
-        val pubLen = buffer.short.toInt() and 0xFFFF
-        val ephemPubBytes = ByteArray(pubLen)
-        buffer.get(ephemPubBytes)
+            val buffer = ByteBuffer.wrap(rawBytes)
+            val pubLen = buffer.short.toInt() and 0xFFFF
+            val ephemPubBytes = ByteArray(pubLen)
+            buffer.get(ephemPubBytes)
 
-        val ephemPubKey = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(ephemPubBytes))
+            val ephemPubKey = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(ephemPubBytes))
 
-        val iv = ByteArray(12)
-        buffer.get(iv)
+            val iv = ByteArray(12)
+            buffer.get(iv)
 
-        val cipherWithTag = ByteArray(buffer.remaining())
-        buffer.get(cipherWithTag)
+            val cipherWithTag = ByteArray(buffer.remaining())
+            buffer.get(cipherWithTag)
 
-        // ECDH 恢復共享密鑰
-        val ka = KeyAgreement.getInstance("ECDH")
-        ka.init(privKey)
-        ka.doPhase(ephemPubKey, true)
-        val sharedSecret = ka.generateSecret()
+            // ECDH 恢復共享密鑰
+            val ka = KeyAgreement.getInstance("ECDH")
+            ka.init(privKey)
+            ka.doPhase(ephemPubKey, true)
+            val sharedSecret = ka.generateSecret()
 
-        // HKDF
-        val salt = "NttuEPassSalt".toByteArray(Charsets.UTF_8)
-        val info = "NttuEPassAES256GCM".toByteArray(Charsets.UTF_8)
-        val aesKeyBytes = HkdfSha256.deriveKey(sharedSecret, salt, info, 32)
-        val secretKey = SecretKeySpec(aesKeyBytes, "AES")
+            // HKDF
+            val salt = "NttuEPassSalt".toByteArray(Charsets.UTF_8)
+            val info = "NttuEPassAES256GCM".toByteArray(Charsets.UTF_8)
+            val aesKeyBytes = HkdfSha256.deriveKey(sharedSecret, salt, info, 32)
+            val secretKey = SecretKeySpec(aesKeyBytes, "AES")
 
-        // AES-256-GCM 解密
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(128, iv))
-        val decryptedBytes = cipher.doFinal(cipherWithTag)
-        val plaintext = String(decryptedBytes, Charsets.UTF_8)
+            // AES-256-GCM 解密
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(128, iv))
+            val decryptedBytes = cipher.doFinal(cipherWithTag)
+            val plaintext = String(decryptedBytes, Charsets.UTF_8)
 
-        val parts = plaintext.split(":")
-        require(parts.size >= 3) { "無效的通行證載荷結構: $plaintext" }
+            val parts = plaintext.split(":")
+            require(parts.size >= 3) { "無效的通行證載荷結構: $plaintext" }
 
-        val studentId = parts[0]
-        val token = parts[1]
-        val donationInt = parts[2].toLongOrNull() ?: 0L
-        val timestamp = if (parts.size >= 4) parts[3].toLongOrNull() ?: 0L else 0L
+            val studentId = parts[0]
+            val token = parts[1]
+            val donationInt = parts[2].toLongOrNull() ?: 0L
+            val timestamp = if (parts.size >= 4) parts[3].toLongOrNull() ?: 0L else 0L
 
-        NttuPassPayload(
-            studentId = studentId,
-            token = token,
-            donationInteger = donationInt,
-            timestamp = timestamp,
-            is1D = false
-        )
+            NttuPassPayload(
+                studentId = studentId,
+                token = token,
+                donationInteger = donationInt,
+                timestamp = timestamp,
+                is1D = false
+            )
+        }
     }
 
     /**
-     * 智慧解析通行證輸入（相容 1D 校園條碼與 2D 加密條碼）
+     * 智慧解析通行證輸入（相容 1D 校園條碼；2D 加密條碼已轉移至獨立核銷工具）
      */
     fun parseAnyPass(rawInput: String): Result<NttuPassPayload> {
         val trimmed = rawInput.trim()
@@ -272,12 +272,9 @@ object NttuCryptoManager {
             )
         }
 
-        // 嘗試 ECC-256 解密
-        val decryptResult = decryptPayload(trimmed)
-        if (decryptResult.isSuccess) {
-            return decryptResult
-        }
-
-        return Result.failure(IllegalArgumentException("無法識別的條碼格式或解密驗證失敗"))
+        // ECC-256 解密已自 App 端移除
+        return Result.failure(
+            UnsupportedOperationException("2D 加密通行證需使用專用核銷工具進行驗證（App 端已移除離線私鑰以保安全）")
+        )
     }
 }

@@ -32,6 +32,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,10 +40,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,173 +53,192 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import tw.edu.irika.nttueclass.data.remote.billing.BillingManager
 import tw.edu.irika.nttueclass.data.remote.billing.BillingProducts
 import tw.edu.irika.nttueclass.pass.crypto.DonationData
 import tw.edu.irika.nttueclass.pass.crypto.DonationIntegerHelper
+import androidx.hilt.navigation.compose.hiltViewModel
 
 @Composable
 fun DonationScreen(
+    viewModel: DonationViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
-    val billingManager = remember { BillingManager(context) }
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    DisposableEffect(billingManager) {
-        onDispose {
-            billingManager.endConnection()
+    when (val state = uiState) {
+        is DonationUiState.Loading -> {
+            Box(
+                modifier = modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
         }
-    }
-
-    val isConnected by billingManager.isConnected.collectAsStateWithLifecycle()
-    val donationData by billingManager.donationData.collectAsStateWithLifecycle()
-    val statusMessage by billingManager.statusMessage.collectAsStateWithLifecycle()
-
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item { Spacer(modifier = Modifier.height(4.dp)) }
-
-        // 標題與簡介
-        item {
-            DonationHeader(isConnected = isConnected)
+        is DonationUiState.Error -> {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(text = state.message, color = MaterialTheme.colorScheme.error)
+            }
         }
+        is DonationUiState.Success -> {
+            val isConnected = state.isConnected
+            val donationData = state.donationData
+            val donationInteger = state.donationInteger
+            val statusMessage = state.statusMessage
 
-        // 當前贊助整數與徽章狀態卡片 (Live Status)
-        item {
-            LiveDonationStatusCard(
-                donationData = donationData,
-                statusMessage = statusMessage
-            )
-        }
+            LazyColumn(
+                modifier = modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                item { Spacer(modifier = Modifier.height(4.dp)) }
 
-        // 月贊助訂閱 (強調卡片)
-        item {
-            Text(
-                text = "月度守護者訂閱 (Monthly Supporter)",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
-
-        item {
-            MonthlySubscriptionCard(
-                title = "初階校園守護者",
-                desc = "點亮校園 Pass 初階金色徽章，贊助伺服器運算",
-                price = "NT$ 50 / 月",
-                isCurrentTier = donationData.tier == 1,
-                onSubscribe = {
-                    activity?.let {
-                        billingManager.launchPurchase(it, BillingProducts.SUB_MONTHLY_BASIC, isSubscription = true)
-                    }
+                // 標題與簡介
+                item {
+                    DonationHeader(isConnected = isConnected)
                 }
-            )
-        }
 
-        item {
-            MonthlySubscriptionCard(
-                title = "核心領航者月贊助",
-                desc = "點亮頂級動態榮譽徽章，全方位支持開源開發",
-                price = "NT$ 120 / 月",
-                isCurrentTier = donationData.tier == 2,
-                onSubscribe = {
-                    activity?.let {
-                        billingManager.launchPurchase(it, BillingProducts.SUB_MONTHLY_PRO, isSubscription = true)
-                    }
+                // 當前贊助整數與徽章狀態卡片 (Live Status)
+                item {
+                    LiveDonationStatusCard(
+                        donationData = donationData,
+                        donationInteger = donationInteger,
+                        statusMessage = statusMessage
+                    )
                 }
-            )
-        }
 
-        // 單次自由贊助項目 (消耗型 Tip Jar)
-        item {
-            Text(
-                text = "單次自由贊助 (Tip Jar)",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
-
-        item {
-            TipOptionCard(
-                icon = Icons.Default.LocalActivity,
-                title = "請作者打一道 maimai / 冰美式",
-                desc = "累計次數寫入贊助整數 (已累計 ${donationData.coffeeCount} 次)",
-                price = "NT$ 40",
-                onPurchase = {
-                    activity?.let {
-                        billingManager.launchPurchase(it, BillingProducts.COFFEE_SMALL)
-                    }
+                // 月贊助訂閱 (強調卡片)
+                item {
+                    Text(
+                        text = "月度守護者訂閱 (Monthly Supporter)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
-            )
-        }
 
-        item {
-            TipOptionCard(
-                icon = Icons.Default.Coffee,
-                title = "請作者喝一杯大杯拿鐵",
-                desc = "熬夜解析學園系統改版之精神食糧",
-                price = "NT$ 75",
-                onPurchase = {
-                    activity?.let {
-                        billingManager.launchPurchase(it, BillingProducts.COFFEE_MEDIUM)
-                    }
+                item {
+                    MonthlySubscriptionCard(
+                        title = "初階校園守護者",
+                        desc = "點亮校園 Pass 初階金色徽章，贊助伺服器運算",
+                        price = "NT$ 50 / 月",
+                        isCurrentTier = donationData.tier == 1,
+                        onSubscribe = {
+                            activity?.let {
+                                viewModel.launchPurchase(it, BillingProducts.SUB_MONTHLY_BASIC, isSubscription = true)
+                            }
+                        }
+                    )
                 }
-            )
-        }
 
-        item {
-            TipOptionCard(
-                icon = Icons.Default.Restaurant,
-                title = "請作者吃一頓澎湃晚餐",
-                desc = "爆肝修復與維護之最高能量補給",
-                price = "NT$ 150",
-                onPurchase = {
-                    activity?.let {
-                        billingManager.launchPurchase(it, BillingProducts.DINNER_LARGE)
-                    }
+                item {
+                    MonthlySubscriptionCard(
+                        title = "核心領航者月贊助",
+                        desc = "點亮頂級動態榮譽徽章，全方位支持開源開發",
+                        price = "NT$ 120 / 月",
+                        isCurrentTier = donationData.tier == 2,
+                        onSubscribe = {
+                            activity?.let {
+                                viewModel.launchPurchase(it, BillingProducts.SUB_MONTHLY_PRO, isSubscription = true)
+                            }
+                        }
+                    )
                 }
-            )
-        }
 
-        // 永久榮譽贊助徽章 (非消耗型)
-        item {
-            Text(
-                text = "永久榮譽專屬徽章",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
-
-        item {
-            PermanentBadgeCard(
-                isUnlocked = donationData.isFounder || donationData.isLifetime,
-                onUnlock = {
-                    activity?.let {
-                        billingManager.launchPurchase(it, BillingProducts.GOLD_SUPPORTER)
-                    }
+                // 單次自由贊助項目 (消耗型 Tip Jar)
+                item {
+                    Text(
+                        text = "單次自由贊助 (Tip Jar)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
-            )
-        }
 
-        // 贊助整數與防退款安全機制卡片
-        item {
-            DonationSecurityCard(
-                onRevalidate = {
-                    billingManager.revalidatePurchases { success, msg ->
-                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                    }
+                item {
+                    TipOptionCard(
+                        icon = Icons.Default.LocalActivity,
+                        title = "請作者打一道 maimai / 冰美式",
+                        desc = "累計次數寫入贊助整數 (已累計 ${donationData.coffeeCount} 次)",
+                        price = "NT$ 40",
+                        onPurchase = {
+                            activity?.let {
+                                viewModel.launchPurchase(it, BillingProducts.COFFEE_SMALL)
+                            }
+                        }
+                    )
                 }
-            )
-        }
 
-        item { Spacer(modifier = Modifier.height(16.dp)) }
+                item {
+                    TipOptionCard(
+                        icon = Icons.Default.Coffee,
+                        title = "請作者喝一杯大杯拿鐵",
+                        desc = "熬夜解析學園系統改版之精神食糧",
+                        price = "NT$ 75",
+                        onPurchase = {
+                            activity?.let {
+                                viewModel.launchPurchase(it, BillingProducts.COFFEE_MEDIUM)
+                            }
+                        }
+                    )
+                }
+
+                item {
+                    TipOptionCard(
+                        icon = Icons.Default.Restaurant,
+                        title = "請作者吃一頓澎湃晚餐",
+                        desc = "爆肝修復與維護之最高能量補給",
+                        price = "NT$ 150",
+                        onPurchase = {
+                            activity?.let {
+                                viewModel.launchPurchase(it, BillingProducts.DINNER_LARGE)
+                            }
+                        }
+                    )
+                }
+
+                // 永久榮譽贊助徽章 (非消耗型)
+                item {
+                    Text(
+                        text = "永久榮譽專屬徽章",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                item {
+                    PermanentBadgeCard(
+                        isUnlocked = donationData.isFounder || donationData.isLifetime,
+                        onUnlock = {
+                            activity?.let {
+                                viewModel.launchPurchase(it, BillingProducts.GOLD_SUPPORTER)
+                            }
+                        }
+                    )
+                }
+
+                // 贊助整數與防退款安全機制卡片
+                item {
+                    DonationSecurityCard(
+                        onRevalidate = {
+                            viewModel.revalidatePurchases { success, msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+                }
+
+                item { Spacer(modifier = Modifier.height(16.dp)) }
+            }
+        }
     }
 }
 
@@ -261,6 +280,7 @@ private fun DonationHeader(isConnected: Boolean) {
 @Composable
 private fun LiveDonationStatusCard(
     donationData: DonationData,
+    donationInteger: Long,
     statusMessage: String
 ) {
     Card(
@@ -307,9 +327,8 @@ private fun LiveDonationStatusCard(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            val encodedLong = DonationIntegerHelper.encode(donationData)
             Text(
-                text = "64-bit 贊助整數: $encodedLong (已同步至 NttuDataPass)",
+                text = "64-bit 贊助整數: $donationInteger (已同步至 NttuDataPass)",
                 style = MaterialTheme.typography.labelSmall,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onSurfaceVariant

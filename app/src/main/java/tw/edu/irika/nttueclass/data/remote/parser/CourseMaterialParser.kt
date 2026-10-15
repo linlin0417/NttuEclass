@@ -11,6 +11,9 @@ import java.util.Locale
 
 object CourseMaterialParser {
 
+    private val SIZE_REGEX = Regex("""(\d+(?:\.\d+)?)\s*(KB|MB|GB|B)""", RegexOption.IGNORE_CASE)
+    private val DATE_REGEX = Regex("""(\d{4}[-/])?\d{1,2}[-/]\d{1,2}""")
+
     /**
      * 解析從伺服器回傳的內容 (自動辨識 JSON 或 HTML)
      */
@@ -95,8 +98,9 @@ object CourseMaterialParser {
         defaultChapter: String,
         output: MutableList<CourseMaterial>
     ) {
-        val actId = act.optString("id").ifBlank { "act_${System.nanoTime()}" }
         val title = act.optString("title").ifBlank { act.optString("name", "未命名教材") }
+        val fallbackActId = "act_" + "${courseId}_${title}_${act.optString("url")}".hashCode()
+        val actId = act.optString("id").ifBlank { fallbackActId }
         val typeStr = act.optString("type", "").lowercase(Locale.getDefault())
         val desc = act.optString("description", "")
         val chapter = act.optString("chapter_name").ifBlank {
@@ -218,12 +222,12 @@ object CourseMaterialParser {
 
                     // 嘗試萃取檔案大小
                     val allText = el.text()
-                    val sizeMatch = Regex("""(\d+(?:\.\d+)?)\s*(KB|MB|GB|B)""", RegexOption.IGNORE_CASE).find(allText)
+                    val sizeMatch = SIZE_REGEX.find(allText)
                     val formattedSize = sizeMatch?.value.orEmpty()
                     val bytes = parseBytes(formattedSize)
 
-                    // 嘗試萃取日期 (YYYY-MM-DD 或 YYYY/MM/DD)
-                    val dateMatch = Regex("""\d{4}[-/]\d{1,2}[-/]\d{1,2}""").find(allText)
+                    // 嘗試萃取日期 (YYYY-MM-DD 或 MM-DD 或 MM/DD)
+                    val dateMatch = DATE_REGEX.find(allText)
                     val uploadDate = dateMatch?.value.orEmpty()
 
                     val materialId = "h_${courseId}_${(rawTitle + href).hashCode()}"
@@ -267,7 +271,7 @@ object CourseMaterialParser {
 
     private fun parseBytes(sizeStr: String): Long {
         if (sizeStr.isBlank()) return 0L
-        val match = Regex("""(\d+(?:\.\d+)?)\s*(KB|MB|GB|B)""", RegexOption.IGNORE_CASE).find(sizeStr) ?: return 0L
+        val match = SIZE_REGEX.find(sizeStr) ?: return 0L
         val num = match.groupValues[1].toDoubleOrNull() ?: return 0L
         val unit = match.groupValues[2].uppercase(Locale.getDefault())
         return when (unit) {

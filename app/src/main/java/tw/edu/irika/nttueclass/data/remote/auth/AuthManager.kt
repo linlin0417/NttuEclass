@@ -3,12 +3,17 @@ package tw.edu.irika.nttueclass.data.remote.auth
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import dagger.hilt.android.qualifiers.ApplicationContext
 import okhttp3.FormBody
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import android.util.Log
 import tw.edu.irika.nttueclass.data.local.security.SecureCredentialStorage
+import tw.edu.irika.nttueclass.data.remote.client.NttuCookieJar
 import tw.edu.irika.nttueclass.data.remote.client.NttuHttpClient
 import java.io.IOException
+import javax.inject.Inject
+import javax.inject.Singleton
 
 sealed interface AuthResult {
     data class Success(val studentId: String) : AuthResult
@@ -18,19 +23,46 @@ sealed interface AuthResult {
     data class EmptyInput(val message: String) : AuthResult
 }
 
-class AuthManager(private val context: Context) {
-    val lockoutManager = AuthLockoutManager(context)
-    val secureStorage = SecureCredentialStorage(context)
-    private val client = NttuHttpClient.client
+@Singleton
+open class AuthManager(
+    private val client: OkHttpClient,
+    private val cookieJar: NttuCookieJar,
+    open val lockoutManager: AuthLockoutManager,
+    open val secureStorage: SecureCredentialStorage,
+    private val context: Context? = null
+) {
+    @Inject
+    constructor(
+        @ApplicationContext context: Context,
+        client: OkHttpClient,
+        cookieJar: NttuCookieJar,
+        lockoutManager: AuthLockoutManager,
+        storage: SecureCredentialStorage
+    ) : this(
+        client = client,
+        cookieJar = cookieJar,
+        lockoutManager = lockoutManager,
+        secureStorage = storage,
+        context = context
+    )
+
+    constructor(context: Context) : this(
+        client = NttuHttpClient.client,
+        cookieJar = NttuHttpClient.cookieJar,
+        lockoutManager = AuthLockoutManager(context),
+        secureStorage = SecureCredentialStorage(context),
+        context = context
+    )
 
     companion object {
         private const val TAG = "AuthDebug"
+        private val REGEX_LOCKOUT_MINUTES = Regex("""(\d+)\s*分鐘""")
     }
 
     /**
      * 執行登入並落實嚴密防鎖定與前置空憑證守衛
      */
-    suspend fun login(studentId: String, password: String): AuthResult = withContext(Dispatchers.IO) {
+    open suspend fun login(studentId: String, password: String): AuthResult = withContext(Dispatchers.IO) {
         val trimmedId = studentId.trim()
         Log.d(TAG, "========== 登入流程開始 ==========")
         Log.d(TAG, "帳號: $trimmedId")
@@ -49,10 +81,13 @@ class AuthManager(private val context: Context) {
                 remainingSeconds = remainingSec,
                 message = "帳號因多次登入失敗已啟動保護鎖定，請等待 ${remainingSec / 60} 分鐘後再試。"
             )
+        } else {
+            lockoutManager.cleanExpiredLockout()
         }
 
         // 準備 CaptchaSolver
-        val solver = CaptchaSolver(context)
+        val ctx = context ?: return@withContext AuthResult.NetworkError("無法初始化驗證碼辨識模組，請重試")
+        val solver = CaptchaSolver(ctx)
         if (!solver.init()) {
             Log.e(TAG, "CaptchaSolver 初始化失敗")
             return@withContext AuthResult.NetworkError("無法初始化驗證碼辨識模組，請重試")
@@ -75,12 +110,24 @@ class AuthManager(private val context: Context) {
                 Log.d(TAG, "[STEP 3] Body前500字: ${html1.take(500)}")
 
                 val document = org.jsoup.Jsoup.parse(html1)
-                val anticsrf = document.select("input[name=anticsrf]").first()?.attr("value") ?: ""
-                val hasLoginForm = html1.contains("id=\"login_form\"")
-                Log.d(TAG, "[STEP 3] anticsrf: '${anticsrf.take(20)}${if (anticsrf.length > 20) "..." else ""}' (長度=${anticsrf.length})")
-                Log.d(TAG, "[STEP 3] 包含 login_form: $hasLoginForm")
+                var anticsrf = document.select("input[name=anticsrf]").first()?.attr("value") ?: ""
+                var hasLoginForm = html1.contains("id=\"login_form\"")
+
+                if (html1.contains("\"logined\":0") && !hasLoginForm) {
+                    android.util.Log.d(TAG, "[STEP 3] Detected guest page, fetching /index/login to get CSRF token")
+                    val loginReq = Request.Builder().url("${NttuHttpClient.BASE_URL}/index/login").build()
+                    val loginRes = client.newCall(loginReq).execute()
+                    val loginHtml = loginRes.body?.string() ?: ""
+                    val loginDoc = org.jsoup.Jsoup.parse(loginHtml)
+                    anticsrf = loginDoc.select("input[name=anticsrf]").first()?.attr("value") ?: ""
+                    hasLoginForm = loginHtml.contains("id=\"login_form\"")
+                }
+
+                Log.d(TAG, "[STEP 3] anticsrf: '${anticsrf.take(20)}${if (anticsrf.length > 20) "..." else ""}' (length=${anticsrf.length})")
+                Log.d(TAG, "[STEP 3] has login_form: $hasLoginForm")
 
                 if (anticsrf.isEmpty() && !hasLoginForm) {
+
                     // 如果沒有anticsrf且不是登入頁，代表可能已經登入了
                     Log.d(TAG, "無anticsrf也無login_form -> 判定為已登入")
                     lockoutManager.recordSuccess()
@@ -98,8 +145,10 @@ class AuthManager(private val context: Context) {
                 val captchaReq = Request.Builder().url(captchaUrl).build()
                 val captchaRes = client.newCall(captchaReq).execute()
                 Log.d(TAG, "[STEP 4] 驗證碼回應狀態碼: ${captchaRes.code}, Content-Type: ${captchaRes.header("Content-Type")}")
-                val captchaStream = captchaRes.body?.byteStream()
-                val bitmap = android.graphics.BitmapFactory.decodeStream(captchaStream)
+                val bitmap = captchaRes.use { res ->
+                    val stream = res.body?.byteStream() ?: return@use null
+                    android.graphics.BitmapFactory.decodeStream(stream)
+                }
                 
                 if (bitmap == null) {
                     Log.w(TAG, "[STEP 4] 驗證碼圖片解碼失敗 (bitmap=null)，重試")
@@ -108,7 +157,11 @@ class AuthManager(private val context: Context) {
                 Log.d(TAG, "[STEP 4] 驗證碼圖片: ${bitmap.width}x${bitmap.height}, config=${bitmap.config}")
 
                 // 5. 辨識驗證碼
-                val captchaCode = solver.solve(bitmap)
+                val captchaCode = try {
+                    solver.solve(bitmap)
+                } finally {
+                    bitmap.recycle()
+                }
                 Log.d(TAG, "[STEP 5] OCR 辨識結果: '$captchaCode' (長度=${captchaCode.length})")
                 
                 if (captchaCode.length != 6) {
@@ -177,7 +230,7 @@ class AuthManager(private val context: Context) {
                     // 檢測伺服器端鎖定 (最優先，必須立即中斷)
                     if (combinedMsg.contains("鎖定") || combinedMsg.contains("解鎖")) {
                         // 提取剩餘分鐘數
-                        val minuteMatch = Regex("(\\d+)\\s*分鐘").find(combinedMsg)
+                        val minuteMatch = REGEX_LOCKOUT_MINUTES.find(combinedMsg)
                         val minutes = minuteMatch?.groupValues?.get(1)?.toLongOrNull() ?: 30
                         Log.e(TAG, "[STEP 7] 伺服器端鎖定！剩餘 ${minutes} 分鐘")
                         return@withContext AuthResult.LockedOut(
@@ -237,13 +290,15 @@ class AuthManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "未預期異常: ${e.message}", e)
             return@withContext AuthResult.NetworkError("登入過程發生錯誤：${e.localizedMessage}")
+        } finally {
+            solver.recycle()
         }
     }
 
     /**
      * 單次靜默刷新 Session (Session 逾期時僅嘗試一次，絕不連續重試)
      */
-    suspend fun silentRefreshSession(): Boolean = withContext(Dispatchers.IO) {
+    open suspend fun silentRefreshSession(): Boolean = withContext(Dispatchers.IO) {
         val id = secureStorage.getStudentId()
         val pwd = secureStorage.getPassword()
         if (id.isNullOrBlank() || pwd.isNullOrBlank()) return@withContext false
@@ -258,8 +313,8 @@ class AuthManager(private val context: Context) {
     /**
      * 登出並清除所有本地權杖與 Session
      */
-    fun logout() {
-        NttuHttpClient.cookieJar.clearSession()
+    open fun logout() {
+        cookieJar.clearSession()
         secureStorage.clearCredentials()
     }
 }

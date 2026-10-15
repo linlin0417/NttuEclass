@@ -5,6 +5,8 @@ scratch/
 node_modules/
 index.html
 *.html
+screen_*.png
+
 
 # IDE & Editor files
 .vscode/

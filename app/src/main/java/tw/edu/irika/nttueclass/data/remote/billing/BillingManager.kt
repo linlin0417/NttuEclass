@@ -45,23 +45,25 @@ object BillingProducts {
 /**
  * Google Play Billing 8.x 內購與防退款核心管理器
  */
-class BillingManager(
-    private val context: Context,
-    private val storage: SecureCredentialStorage = SecureCredentialStorage(context)
+open class BillingManager(
+    private val context: Context?,
+    private val storage: SecureCredentialStorage? = context?.let { SecureCredentialStorage(it) }
 ) : PurchasesUpdatedListener {
+
+    constructor(context: Context) : this(context, SecureCredentialStorage(context))
 
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    private val _isConnected = MutableStateFlow(false)
-    val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
+    protected val _isConnected = MutableStateFlow(false)
+    open val isConnected: StateFlow<Boolean> get() = _isConnected.asStateFlow()
 
-    private val _donationData = MutableStateFlow(
-        DonationIntegerHelper.decode(storage.getDonationInteger())
+    protected val _donationData = MutableStateFlow(
+        storage?.getDonationInteger()?.let { DonationIntegerHelper.decode(it) } ?: DonationData()
     )
-    val donationData: StateFlow<DonationData> = _donationData.asStateFlow()
+    open val donationData: StateFlow<DonationData> get() = _donationData.asStateFlow()
 
-    private val _statusMessage = MutableStateFlow("尚未連線至 Google Play")
-    val statusMessage: StateFlow<String> = _statusMessage.asStateFlow()
+    protected val _statusMessage = MutableStateFlow("尚未連線至 Google Play")
+    open val statusMessage: StateFlow<String> get() = _statusMessage.asStateFlow()
 
     private var productDetailsMap = mutableMapOf<String, ProductDetails>()
 
@@ -70,14 +72,16 @@ class BillingManager(
             .enableOneTimeProducts()
             .build()
 
-        BillingClient.newBuilder(context)
+        BillingClient.newBuilder(context!!)
             .setListener(this)
             .enablePendingPurchases(pendingParams)
             .build()
     }
 
     init {
-        startBillingConnection()
+        if (context != null) {
+            startBillingConnection()
+        }
     }
 
     fun startBillingConnection(onConnected: (() -> Unit)? = null) {
@@ -160,7 +164,7 @@ class BillingManager(
     /**
      * 發起購買流程
      */
-    fun launchPurchase(activity: Activity, productId: String, isSubscription: Boolean = false) {
+    open fun launchPurchase(activity: Activity, productId: String, isSubscription: Boolean = false) {
         val details = productDetailsMap[productId]
         if (details == null) {
             _statusMessage.value = "Google Play 商品資訊載入中，請確認網路連線或稍候再試"
@@ -253,7 +257,7 @@ class BillingManager(
      * 將商品權益回寫至 64-bit 贊助整數與本地加密存儲
      */
     fun applyProductBenefit(productId: String) {
-        val current = DonationIntegerHelper.decode(storage.getDonationInteger())
+        val current = DonationIntegerHelper.decode(storage?.getDonationInteger() ?: 0L)
         val updated = when (productId) {
             BillingProducts.COFFEE_SMALL -> current.copy(coffeeCount = minOf(65535, current.coffeeCount + 1))
             BillingProducts.COFFEE_MEDIUM -> current.copy(dinnerCount = minOf(65535, current.dinnerCount + 1))
@@ -283,7 +287,7 @@ class BillingManager(
      * 每次啟動或手動觸發時向 Google Play 查詢當前有效訂單。
      * 若訂單遭 Google 退款或作廢 (Voided)，自動收回特權與徽章。
      */
-    fun revalidatePurchases(onResult: ((Boolean, String) -> Unit)? = null) {
+    open fun revalidatePurchases(onResult: ((Boolean, String) -> Unit)? = null) {
         if (!_isConnected.value) {
             onResult?.invoke(false, "尚未連線至 Google Play")
             return
@@ -333,7 +337,7 @@ class BillingManager(
             }
 
             // 3. 比對本地記錄並執行退款撤回
-            val current = DonationIntegerHelper.decode(storage.getDonationInteger())
+            val current = DonationIntegerHelper.decode(storage?.getDonationInteger() ?: 0L)
             var modified = false
             var message = "購買狀態驗證正常"
 
@@ -366,11 +370,13 @@ class BillingManager(
 
     private fun saveDonationData(data: DonationData) {
         val encoded = DonationIntegerHelper.encode(data)
-        storage.saveDonationInteger(encoded)
+        storage?.saveDonationInteger(encoded)
         _donationData.value = data
     }
 
-    fun endConnection() {
-        billingClient.endConnection()
+    open fun endConnection() {
+        if (context != null) {
+            billingClient.endConnection()
+        }
     }
 }

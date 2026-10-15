@@ -1,10 +1,17 @@
 package tw.edu.irika.nttueclass.data.local.db.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import tw.edu.irika.nttueclass.domain.model.Announcement
 
-@Entity(tableName = "announcements")
+@Entity(
+    tableName = "announcements",
+    indices = [
+        Index(value = ["courseId"]),
+        Index(value = ["date"])
+    ]
+)
 data class AnnouncementEntity(
     @PrimaryKey val id: String,
     val courseId: String,

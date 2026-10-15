@@ -1,8 +1,10 @@
 package tw.edu.irika.nttueclass.domain.model
 
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Locale
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 enum class TaskType {
     ASSIGNMENT,    // 作業
@@ -33,32 +35,32 @@ data class TaskItem(
     val url: String = ""
 ) {
     companion object {
-        private val dateWithTimePatterns = listOf(
-            "yyyy-MM-dd HH:mm:ss",
-            "yyyy-MM-dd HH:mm",
-            "yyyy/MM/dd HH:mm:ss",
-            "yyyy/MM/dd HH:mm"
+        private val ZONE_ID: ZoneId by lazy { ZoneId.systemDefault() }
+
+        private val DATE_WITH_TIME_FORMATTERS = listOf(
+            DateTimeFormatter.ofPattern("yyyy-M-d H:m:s"),
+            DateTimeFormatter.ofPattern("yyyy-M-d H:m"),
+            DateTimeFormatter.ofPattern("yyyy/M/d H:m:s"),
+            DateTimeFormatter.ofPattern("yyyy/M/d H:m")
         )
-        private val dateOnlyPatterns = listOf(
-            "yyyy-MM-dd",
-            "yyyy/MM/dd"
+
+        private val DATE_ONLY_FORMATTERS = listOf(
+            DateTimeFormatter.ofPattern("yyyy-M-d"),
+            DateTimeFormatter.ofPattern("yyyy/M/d")
         )
-        private val dateNoYearPatterns = listOf(
-            "MM-dd HH:mm:ss",
-            "MM-dd HH:mm",
-            "MM/dd HH:mm:ss",
-            "MM/dd HH:mm"
-        )
-        private val hourRegex = Regex("""(\d+)\s*(?:個)?小時""")
-        private val dayRegex = Regex("""(\d+)\s*天""")
+
+        private val DATE_NO_YEAR_REGEX = Regex("""^\d{1,2}[-/]\d{1,2}""")
+        private val FOUR_DIGIT_YEAR_REGEX = Regex("""^\d{4}""")
+        private val HOUR_REGEX = Regex("""(\d+)\s*(?:個)?小時""")
+        private val DAY_REGEX = Regex("""(\d+)\s*天""")
 
         /**
          * 將缺少西元年的 MM-dd HH:mm 格式標準化補齊年份 (如 06-19 23:59 -> 2026-06-19 23:59)
          */
-        fun normalizeDueDate(dueDateTimeStr: String, defaultYear: Int = Calendar.getInstance().get(Calendar.YEAR)): String {
+        fun normalizeDueDate(dueDateTimeStr: String, defaultYear: Int = LocalDate.now().year): String {
             val trimmed = dueDateTimeStr.trim()
             if (trimmed.isBlank()) return ""
-            return if (Regex("""^\d{1,2}[-/]\d{1,2}""").containsMatchIn(trimmed) && !Regex("""^\d{4}""").containsMatchIn(trimmed)) {
+            return if (DATE_NO_YEAR_REGEX.containsMatchIn(trimmed) && !FOUR_DIGIT_YEAR_REGEX.containsMatchIn(trimmed)) {
                 val separator = if (trimmed.contains("/")) "/" else "-"
                 "$defaultYear$separator$trimmed"
             } else {
@@ -77,7 +79,10 @@ data class TaskItem(
             if (isSubmitted) {
                 return Pair(0L, TaskStatus.COMPLETED)
             }
-            val currentYear = Calendar.getInstance().apply { timeInMillis = nowMs }.get(Calendar.YEAR)
+            val zoneId = ZONE_ID
+            val nowInstant = Instant.ofEpochMilli(nowMs)
+            val nowZoned = nowInstant.atZone(zoneId)
+            val currentYear = nowZoned.year
             val normalizedStr = normalizeDueDate(dueDateTimeStr, currentYear)
             if (normalizedStr.isBlank()) {
                 return Pair(0L, TaskStatus.PENDING)
@@ -86,46 +91,35 @@ data class TaskItem(
             var targetTimeMs: Long? = null
 
             // 1. 先嘗試含時分的格式
-            for (pattern in dateWithTimePatterns) {
+            for (formatter in DATE_WITH_TIME_FORMATTERS) {
                 try {
-                    val sdf = SimpleDateFormat(pattern, Locale.getDefault()).apply { isLenient = false }
-                    val date = sdf.parse(normalizedStr)
-                    if (date != null) {
-                        targetTimeMs = date.time
-                        break
-                    }
+                    val ldt = LocalDateTime.parse(normalizedStr, formatter)
+                    targetTimeMs = ldt.atZone(zoneId).toInstant().toEpochMilli()
+                    break
                 } catch (_: Exception) {}
             }
 
-            // 2. 若為純日期 (yyyy-MM-dd 或 yyyy/MM/dd)，截止時間預設為當日 23:59:59
+            // 2. 若為純日期 (yyyy-MM-dd 或 yyyy/MM/dd)，截止時間預設為當日 23:59:59.999
             if (targetTimeMs == null) {
-                for (pattern in dateOnlyPatterns) {
+                val cleanDate = dueDateTimeStr.trim()
+                for (formatter in DATE_ONLY_FORMATTERS) {
                     try {
-                        val sdf = SimpleDateFormat(pattern, Locale.getDefault()).apply { isLenient = false }
-                        val date = sdf.parse(dueDateTimeStr.trim())
-                        if (date != null) {
-                            val cal = Calendar.getInstance().apply {
-                                time = date
-                                set(Calendar.HOUR_OF_DAY, 23)
-                                set(Calendar.MINUTE, 59)
-                                set(Calendar.SECOND, 59)
-                                set(Calendar.MILLISECOND, 999)
-                            }
-                            targetTimeMs = cal.timeInMillis
-                            break
-                        }
+                        val ld = LocalDate.parse(cleanDate, formatter)
+                        val endOfDay = ld.atTime(23, 59, 59, 999_000_000)
+                        targetTimeMs = endOfDay.atZone(zoneId).toInstant().toEpochMilli()
+                        break
                     } catch (_: Exception) {}
                 }
             }
 
             // 3. 相對文字匹配 (如 "2小時", "3天")
             if (targetTimeMs == null) {
-                val hourMatch = hourRegex.find(dueDateTimeStr)
+                val hourMatch = HOUR_REGEX.find(dueDateTimeStr)
                 if (hourMatch != null) {
                     val hours = hourMatch.groupValues[1].toLongOrNull() ?: 0L
                     targetTimeMs = nowMs + hours * 3600 * 1000L
                 } else {
-                    val dayMatch = dayRegex.find(dueDateTimeStr)
+                    val dayMatch = DAY_REGEX.find(dueDateTimeStr)
                     if (dayMatch != null) {
                         val days = dayMatch.groupValues[1].toLongOrNull() ?: 0L
                         targetTimeMs = nowMs + days * 24 * 3600 * 1000L

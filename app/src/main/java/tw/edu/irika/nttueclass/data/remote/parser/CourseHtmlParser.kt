@@ -6,6 +6,14 @@ import tw.edu.irika.nttueclass.domain.model.Course
 
 object CourseHtmlParser {
 
+    private val HINT_TEACHER_REGEX = Regex("""(?:老師|教師|授課教師|授課老師|指導教授|指導老師|講師|教授)\s*[:：]\s*([^,，;；/\r\n]+)""")
+    private val HINT_CODE_REGEX = Regex("""(?:代碼|課號)\s*[:：]\s*([^\s,，;；/\r\n]+)""")
+    private val HINT_ROOM_REGEX = Regex("""(?:教室|地點|上課教室|上課地點)\s*[:：]\s*([^,，;；/\r\n]+)""")
+    private val HINT_SEM_REGEX = Regex("""(?:期間|學期)\s*[:：]\s*([^,，;；/\r\n]+)""")
+    private val CARD_TEACHER_REGEX = Regex("""(?:老師|教師|授課教師|授課老師|講師|教授|Instructor|Teacher)\s*[:：]\s*([^,，;；/\r\n]+)""")
+    private val ROW_TEACHER_REGEX = Regex("""(?:老師|教師|授課教師|授課老師|講師|教授)\s*[:：]\s*([^,，;；/\r\n]+)""")
+    private val CLEAN_TITLE_REGEX = Regex("""[*＊]""")
+
     /**
      * 解析本學期課程列表 (/dashboard, /course, /app/course/)
      * 支援 NTTU 網路學園 3.0 卡片式結構 (.fs-caption, .fs-hint) 及傳統表格結構 (table tr)
@@ -45,22 +53,22 @@ object CourseHtmlParser {
                         val text = hint.text().trim()
                         if (text.isBlank()) continue
 
-                        val teacherMatch = Regex("""(?:老師|教師|授課教師|授課老師|指導教授|指導老師|講師|教授)\s*[:：]\s*([^,，;；/\r\n]+)""").find(text)
+                        val teacherMatch = HINT_TEACHER_REGEX.find(text)
                         if (teacherMatch != null && instructor.isBlank()) {
                             instructor = teacherMatch.groupValues[1].trim()
                         }
 
-                        val codeMatch = Regex("""(?:代碼|課號)\s*[:：]\s*([^\s,，;；/\r\n]+)""").find(text)
+                        val codeMatch = HINT_CODE_REGEX.find(text)
                         if (codeMatch != null && code.isBlank()) {
                             code = codeMatch.groupValues[1].trim()
                         }
 
-                        val roomMatch = Regex("""(?:教室|地點|上課教室|上課地點)\s*[:：]\s*([^,，;；/\r\n]+)""").find(text)
+                        val roomMatch = HINT_ROOM_REGEX.find(text)
                         if (roomMatch != null && classroom.isBlank()) {
                             classroom = roomMatch.groupValues[1].trim()
                         }
 
-                        val semMatch = Regex("""(?:期間|學期)\s*[:：]\s*([^,，;；/\r\n]+)""").find(text)
+                        val semMatch = HINT_SEM_REGEX.find(text)
                         if (semMatch != null) {
                             val s = semMatch.groupValues[1].trim()
                             if (s.isNotBlank()) semester = s
@@ -70,7 +78,7 @@ object CourseHtmlParser {
                     // 若尚未取得教師，利用正規式搜尋卡片全部文字
                     if (instructor.isBlank()) {
                         val allText = item.text()
-                        val teacherMatch = Regex("""(?:老師|教師|授課教師|授課老師|講師|教授|Instructor|Teacher)\s*[:：]\s*([^,，;；/\r\n]+)""").find(allText)
+                        val teacherMatch = CARD_TEACHER_REGEX.find(allText)
                         if (teacherMatch != null) {
                             instructor = teacherMatch.groupValues[1].trim()
                         } else {
@@ -115,7 +123,7 @@ object CourseHtmlParser {
                     val rowText = row.text()
                     var instructor = row.selectFirst(".teacher, .instructor")?.text()?.trim().orEmpty()
                     if (instructor.isBlank()) {
-                        val teacherMatch = Regex("""(?:老師|教師|授課教師|授課老師|講師|教授)\s*[:：]\s*([^,，;；/\r\n]+)""").find(rowText)
+                        val teacherMatch = ROW_TEACHER_REGEX.find(rowText)
                         if (teacherMatch != null) {
                             instructor = teacherMatch.groupValues[1].trim()
                         } else {
@@ -178,7 +186,7 @@ object CourseHtmlParser {
     }
 
     private fun cleanCourseTitle(raw: String): String {
-        return raw.replace(Regex("""[*＊]"""), "").trim()
+        return raw.replace(CLEAN_TITLE_REGEX, "").trim()
     }
 
     private fun isHeaderOrSystemName(name: String): Boolean {

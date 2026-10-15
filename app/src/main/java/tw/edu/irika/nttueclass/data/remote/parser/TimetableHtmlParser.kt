@@ -18,6 +18,7 @@ object TimetableHtmlParser {
     private val REGEX_CLEAN_BRACKETS = Regex("""[()（）\[\]【】]""")
     private val REGEX_CLEAN_CLASSROOM_PREFIX = Regex("""^(?:教室|地點|上課教室|上課地點)[:：]?\s*""")
     private val REGEX_HINT_TRAILING = Regex("""^[\s/／,，·・-]+|[\s/／,，·・-]+$""")
+    private val REGEX_SPACES = Regex("""\s+""")
 
     private fun buildLetterRegex(letter: String): Regex =
         Regex("""(?i)(?:第|節次)\s*$letter|$letter\s*節|\b$letter\b""")
@@ -223,7 +224,7 @@ object TimetableHtmlParser {
 
                 // 容錯：若仍缺少教室或教師，且該 seg 含有空格分隔複合資訊 (如 "H112-2語言教室 A 劉文雲")
                 if (classroom.isBlank() || instructor.isBlank()) {
-                    val spaceTokens = seg.split(Regex("""\s+""")).filter { it.isNotBlank() }
+                    val spaceTokens = seg.split(REGEX_SPACES).filter { it.isNotBlank() }
                     if (spaceTokens.size >= 2) {
                         val lastToken = spaceTokens.last()
                         if (isLikelyInstructor(lastToken) && instructor.isBlank()) {

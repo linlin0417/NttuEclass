@@ -1,12 +1,18 @@
 package tw.edu.irika.nttueclass.data.local.db.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import tw.edu.irika.nttueclass.domain.model.TaskItem
 import tw.edu.irika.nttueclass.domain.model.TaskStatus
 import tw.edu.irika.nttueclass.domain.model.TaskType
 
-@Entity(tableName = "tasks")
+@Entity(
+    tableName = "tasks",
+    indices = [
+        Index(value = ["dueDateTime"])
+    ]
+)
 data class TaskEntity(
     @PrimaryKey val id: String,
     val courseId: String,

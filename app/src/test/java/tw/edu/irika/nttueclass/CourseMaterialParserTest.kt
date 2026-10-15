@@ -191,4 +191,72 @@ class CourseMaterialParserTest {
         assertEquals(domain.downloadStatus, convertedBack.downloadStatus)
         assertEquals(domain.localFilePath, convertedBack.localFilePath)
     }
+
+    @Test
+    fun parseJson_producesDeterministicStableIdsAcrossRuns() {
+        val json = """
+            {
+                "activities": [
+                    {
+                        "id": "",
+                        "title": "無ID教材檔案",
+                        "url": "/doc/view/123"
+                    }
+                ]
+            }
+        """.trimIndent()
+
+        val run1 = CourseMaterialParser.parse("c1", json)
+        val run2 = CourseMaterialParser.parse("c1", json)
+
+        assertEquals(1, run1.size)
+        assertEquals(1, run2.size)
+        assertEquals("Deterministic fallback ID must match across executions", run1[0].id, run2[0].id)
+        assertFalse("ID must not be empty", run1[0].id.isBlank())
+    }
+
+    @Test
+    fun parseHtml_realWorldMaterialTableStructure() {
+        val html = """
+            <!DOCTYPE html><html lang="zh-tw"><head></head><body class='body-course'>
+            <div id='page'><table class='table custom table-hover ' id='materialListTable'>
+            <thead></thead>
+            <tbody>
+            <tr class=' '>
+                <td class='text-center col-no'><div class='text-overflow'>1</div></td>
+                <td class=' '><div class='sm-text-overflow'><div class="fs-singleLineText "><div class="icon pull-right"></div><div class="text-overflow"><a href='/media/doc/185196'><span class='fs-iconfont far fa-file-alt'></span> <span class='text '>結報檔案</span></a></div></div></div></td>
+                <td class='col-name'><div class='text-overflow'>詹孟瑀</div></td>
+                <td class='text-center col-num'><div class='text-overflow'>119</div></td>
+                <td class='text-center col-num'><div class='text-overflow'>0</div></td>
+                <td class='text-center col-date'><div class='text-overflow'>09-21</div></td>
+            </tr>
+            </tbody>
+            </table></div></body></html>
+        """.trimIndent()
+
+        val parsed = CourseMaterialParser.parse("21187", html)
+        assertEquals(1, parsed.size)
+        assertEquals("結報檔案", parsed[0].title)
+        assertEquals("https://eclass2.nttu.edu.tw/media/doc/185196", parsed[0].downloadUrl)
+        assertEquals("09-21", parsed[0].uploadDate)
+    }
+
+    @Test
+    fun courseMaterial_isFilePresentOnDiskEvaluatesCorrectly() {
+        val nonExistentMaterial = CourseMaterial(
+            id = "m_none",
+            courseId = "c1",
+            title = "ghost.pdf",
+            localFilePath = "/path/to/non/existent/file.pdf"
+        )
+        assertFalse(nonExistentMaterial.isFilePresentOnDisk)
+
+        val nullPathMaterial = CourseMaterial(
+            id = "m_null",
+            courseId = "c1",
+            title = "remote.pdf",
+            localFilePath = null
+        )
+        assertFalse(nullPathMaterial.isFilePresentOnDisk)
+    }
 }
